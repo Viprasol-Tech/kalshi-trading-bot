@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Telegram support
+    url: https://t.me/viprasol_help
+    about: Ask questions and get help from Viprasol Tech.
+  - name: 🌐 Viprasol Tech
+    url: https://viprasol.com
+    about: Custom trading systems, MT4/MT5 bots, and fintech development.
+  - name: 🔐 Report a security issue
+    url: https://github.com/Viprasol-Tech/kalshi-trading-bot/security/advisories/new
+    about: Please report vulnerabilities privately (see SECURITY.md).
