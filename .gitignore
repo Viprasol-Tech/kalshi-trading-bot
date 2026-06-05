@@ -1,0 +1,41 @@
+# --- Secrets (NEVER commit) --------------------------------------------------
+.env
+.env.*
+!.env.example
+secrets/*
+!secrets/README.md
+*.pem
+*.key
+*_private_key*
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# --- Tooling -----------------------------------------------------------------
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+site/
+
+# --- Data / logs -------------------------------------------------------------
+data/*.db
+data/*.parquet
+logs/
+*.log
+
+# --- OS / editor -------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

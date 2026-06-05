@@ -1,0 +1,27 @@
+# Example strategy configuration for the Kalshi Trading Bot.
+# These map to strategy constructor params; adapt to your own runner.
+
+strategy: momentum          # market_maker | momentum
+ticker: INXD-23DEC29-B5000  # the Kalshi market to trade
+
+# Strategy parameters
+params:
+  momentum:
+    window: 10              # moving-average lookback
+    size: 1                 # contracts per entry
+  market_maker:
+    spread_cents: 2         # half-spread from mid for each quote
+    quote_size: 1           # contracts per quote
+    max_inventory: 50       # inventory cap before pausing a side
+
+# Risk limits
+risk:
+  max_contracts_per_order: 100
+  max_position_per_market: 500
+  max_order_notional_cents: 50000   # $500
+  kelly_fraction: 0.25              # quarter-Kelly
+
+# Execution
+execution:
+  dry_run: true             # ALWAYS start with dry_run = true
+  poll_interval: 2.0        # seconds between market polls

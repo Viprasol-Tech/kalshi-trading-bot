@@ -1,0 +1,16 @@
+# Kalshi Trading Bot — by Viprasol Tech
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: viprasol/kalshi-trading-bot:latest
+    env_file:
+      - .env
+    volumes:
+      # Mount your read-only private key into the container.
+      - ./secrets:/app/secrets:ro
+      - ./data:/app/data
+    # Override the default command, e.g.:
+    #   docker compose run --rm bot markets --status open --limit 10
+    command: ["--help"]
