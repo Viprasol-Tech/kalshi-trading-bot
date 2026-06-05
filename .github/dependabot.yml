@@ -1,12 +1,23 @@
+# Dependabot — keeps dependencies up to date with minimal noise.
+# Updates are checked monthly and batched into a single grouped PR per ecosystem.
 version: 2
 updates:
   - package-ecosystem: pip
     directory: "/"
     schedule:
-      interval: weekly
+      interval: monthly
     labels: ["dependencies"]
+    open-pull-requests-limit: 5
+    groups:
+      python-dependencies:
+        patterns: ["*"]
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: weekly
+      interval: monthly
     labels: ["dependencies", "ci"]
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
