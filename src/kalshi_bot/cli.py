@@ -14,11 +14,18 @@ from rich.console import Console
 from rich.table import Table
 
 from kalshi_bot import __version__
+from kalshi_bot.backtesting.data import random_walk_snapshots
+from kalshi_bot.backtesting.engine import Backtester
+from kalshi_bot.backtesting.report import render as render_report
 from kalshi_bot.config import load_settings
 from kalshi_bot.core.engine import TradingEngine
 from kalshi_bot.exchange.client import KalshiClient
 from kalshi_bot.risk.manager import RiskManager
+from kalshi_bot.strategies.base import Strategy
+from kalshi_bot.strategies.examples.arbitrage import ArbitrageYesNo
+from kalshi_bot.strategies.examples.fair_value import FairValue
 from kalshi_bot.strategies.examples.market_maker import MarketMaker
+from kalshi_bot.strategies.examples.mean_reversion import MeanReversion
 from kalshi_bot.strategies.examples.momentum import Momentum
 
 app = typer.Typer(
@@ -27,13 +34,60 @@ app = typer.Typer(
 )
 console = Console()
 
-STRATEGIES = {"market_maker": MarketMaker, "momentum": Momentum}
+STRATEGIES: dict[str, type[Strategy]] = {
+    "market_maker": MarketMaker,
+    "momentum": Momentum,
+    "mean_reversion": MeanReversion,
+    "arbitrage": ArbitrageYesNo,
+    "fair_value": FairValue,
+}
 
 
 @app.command()
 def version() -> None:
     """Print the installed version."""
     console.print(f"kalshi-trading-bot [bold cyan]{__version__}[/] — by Viprasol Tech")
+
+
+@app.command()
+def strategies() -> None:
+    """List the bundled example strategies."""
+    table = Table(title="Bundled strategies (educational only)")
+    table.add_column("Name", style="cyan")
+    table.add_column("Class")
+    table.add_column("Summary")
+    summaries = {
+        "market_maker": "Quote both sides around mid with an inventory cap.",
+        "momentum": "Trade in the direction of short-term last-price momentum.",
+        "mean_reversion": "Fade moves beyond N standard deviations from the mean.",
+        "arbitrage": "Buy YES+NO when their combined ask is below 100c.",
+        "fair_value": "Buy YES below your fair probability, Kelly-sized.",
+    }
+    for name, cls in STRATEGIES.items():
+        table.add_row(name, cls.__name__, summaries.get(name, ""))
+    console.print(table)
+
+
+@app.command()
+def backtest(
+    strategy: str = typer.Argument("momentum", help=f"One of: {', '.join(STRATEGIES)}"),
+    ticks: int = typer.Option(200, help="Number of synthetic snapshots to replay."),
+    balance: int = typer.Option(100_000, help="Starting balance in cents."),
+    seed: int = typer.Option(42, help="RNG seed for the synthetic random walk."),
+) -> None:
+    """Backtest a strategy on synthetic data and print a metrics report.
+
+    Uses an offline random walk so it runs with no network or credentials.
+    """
+    if strategy not in STRATEGIES:
+        choices = ", ".join(STRATEGIES)
+        console.print(f"[red]Unknown strategy '{strategy}'. Choose from: {choices}[/]")
+        raise typer.Exit(code=1)
+
+    snapshots = random_walk_snapshots(n=ticks, seed=seed)
+    bt = Backtester(starting_balance_cents=balance)
+    report = bt.run(STRATEGIES[strategy](), snapshots)
+    render_report(report, console=console, title=f"Backtest: {strategy} ({ticks} ticks)")
 
 
 @app.command()
@@ -96,8 +150,9 @@ def run(
             engine = TradingEngine(
                 client=client,
                 strategy=STRATEGIES[strategy](),
-                risk=RiskManager(),
+                risk=RiskManager.from_settings(settings.risk),
                 dry_run=dry_run,
+                poll_interval=settings.poll_interval,
             )
             await engine.run(ticker, max_ticks=ticks)
 

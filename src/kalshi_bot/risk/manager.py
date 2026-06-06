@@ -10,8 +10,12 @@ Part of the Kalshi Trading Bot by Viprasol Tech Private Limited.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from kalshi_bot.exchange.models import OrderRequest
+
+if TYPE_CHECKING:
+    from kalshi_bot.config import RiskSettings
 
 
 @dataclass(slots=True)
@@ -22,6 +26,16 @@ class RiskLimits:
     max_position_per_market: int = 500
     max_order_notional_cents: int = 50_000  # max cents committed by one order
     kelly_fraction: float = 0.25  # fractional Kelly (quarter-Kelly default)
+
+    @classmethod
+    def from_settings(cls, risk: RiskSettings) -> RiskLimits:
+        """Build limits from validated :class:`~kalshi_bot.config.RiskSettings`."""
+        return cls(
+            max_contracts_per_order=risk.max_contracts_per_order,
+            max_position_per_market=risk.max_position_per_market,
+            max_order_notional_cents=risk.max_order_notional_cents,
+            kelly_fraction=risk.kelly_fraction,
+        )
 
 
 @dataclass(slots=True)
@@ -37,6 +51,11 @@ class RiskManager:
 
     def __init__(self, limits: RiskLimits | None = None) -> None:
         self.limits = limits or RiskLimits()
+
+    @classmethod
+    def from_settings(cls, risk: RiskSettings) -> RiskManager:
+        """Build a risk manager from :class:`~kalshi_bot.config.RiskSettings`."""
+        return cls(RiskLimits.from_settings(risk))
 
     def check(self, order: OrderRequest, current_position: int) -> RiskDecision:
         """Approve or reject an order against the configured limits."""

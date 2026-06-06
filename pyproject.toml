@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kalshi-trading-bot"
-version = "0.1.0"
+version = "0.2.0"
 description = "Open-source algorithmic trading framework for Kalshi prediction markets — by Viprasol Tech."
 readme = "README.md"
 requires-python = ">=3.11"
