@@ -55,6 +55,30 @@ The checked public historical API catalog exposes markets, candles and trades;
 it did not supply a suitable historical resting-depth snapshot archive.
 This does not establish that no third-party archive exists.
 
+### Third-party availability check
+
+The search also covered public third-party archives, not just Kalshi's API.
+KalshiBackTest advertises approximately 100 ms book snapshots with an underlying
+coin price; its documented free tier requires a provider key and limits access
+to 50 markets per deployment. Those documentation claims do not verify demo
+provenance, feed identity or completeness, and no account/key was obtained.
+
+DepthFeed exposes an account-free four-market sample. Direct HTTPS reads
+succeeded: the 1,020-row book file includes **637 snapshots of one BTC market**,
+`KXBTC15M-26OCT271200-00`. It contains receipt timestamps and YES/NO price/size
+arrays, but **no matching underlying reference ticks**. Its one BTC metadata row
+contains a target-price subtitle and outcome, not the required `floor_strike`,
+rule text, settlement confirmation time or metadata receipt history. A subtitle
+was not promoted into a verified as-of strike. The sample does not establish
+demo-environment provenance and was not imported or mixed with the demo audit.
+
+This is evidence that historical depth can be sourced, not that a sufficient
+dataset was obtained here. One market without the required reference/provenance
+cannot support the strategy's calibration gate or the requested performance
+validation. No provider subscription, paid download or credentialed request was
+made. The data gap is a **matching, validated dataset**, not a claim that no
+historical order books exist anywhere.
+
 Consequently:
 
 | Requested historical metric | Result |
@@ -194,3 +218,6 @@ Sources:
 - [Kalshi candle schema](https://docs.kalshi.com/api-reference/market/get-market-candlesticks)
 - [Coinbase candle schema and granularity](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-candles)
 - [Official fee schedule](https://kalshi.com/docs/kalshi-fee-schedule.pdf)
+- [Third-party snapshot schema and key-based free-tier limits](https://docs.kalshibacktest.com/available-data)
+- [DepthFeed public sample market metadata](https://depthfeed.com/samples/kalshi/kalshi-sample-markets.csv)
+- [DepthFeed public sample order books](https://depthfeed.com/samples/kalshi/kalshi-sample-books.csv.gz)
