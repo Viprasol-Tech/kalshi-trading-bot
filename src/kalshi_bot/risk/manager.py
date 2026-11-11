@@ -9,6 +9,8 @@ Part of the Kalshi Trading Bot by Viprasol Tech Private Limited.
 
 from __future__ import annotations
 
+import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
     from kalshi_bot.config import RiskSettings
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class RiskLimits:
     """Configurable risk limits."""
 
@@ -26,6 +28,14 @@ class RiskLimits:
     max_position_per_market: int = 500
     max_order_notional_cents: int = 50_000  # max cents committed by one order
     kelly_fraction: float = 0.25  # fractional Kelly (quarter-Kelly default)
+
+    def __post_init__(self) -> None:
+        if (
+            min(self.max_contracts_per_order, self.max_position_per_market,
+                self.max_order_notional_cents) <= 0
+            or not 0 < self.kelly_fraction <= 1
+        ):
+            raise ValueError("Invalid risk limits.")
 
     @classmethod
     def from_settings(cls, risk: RiskSettings) -> RiskLimits:
@@ -57,20 +67,35 @@ class RiskManager:
         """Build a risk manager from :class:`~kalshi_bot.config.RiskSettings`."""
         return cls(RiskLimits.from_settings(risk))
 
-    def check(self, order: OrderRequest, current_position: int) -> RiskDecision:
+    def check(
+        self, order: OrderRequest, current_position: int, *,
+        available_cash: int | None = None,
+        pending_orders: Sequence[OrderRequest] = (),
+        estimated_fees: int | None = None,
+    ) -> RiskDecision:
         """Approve or reject an order against the configured limits."""
         if order.count > self.limits.max_contracts_per_order:
             return RiskDecision(False, "order count exceeds max_contracts_per_order")
 
-        signed = order.count if order.action.value == "buy" else -order.count
-        projected = current_position + signed
-        if abs(projected) > self.limits.max_position_per_market:
+        if available_cash is None or available_cash <= 0:
+            return RiskDecision(False, "missing or insufficient available cash")
+        # Opposing pending orders cannot be netted: only one side might fill.
+        deltas = [o.signed_count for o in pending_orders if o.ticker == order.ticker]
+        deltas.append(order.signed_count)
+        low = current_position + sum(d for d in deltas if d < 0)
+        high = current_position + sum(d for d in deltas if d > 0)
+        if max(abs(low), abs(high)) > self.limits.max_position_per_market:
             return RiskDecision(False, "projected position exceeds max_position_per_market")
 
-        price = order.yes_price or order.no_price or 0
-        notional = price * order.count
+        price = order.limit_price
+        fees = 2 * order.count if estimated_fees is None else estimated_fees
+        if fees < 0:
+            return RiskDecision(False, "invalid estimated fees")
+        notional = price * order.count + fees
         if notional > self.limits.max_order_notional_cents:
             return RiskDecision(False, "order notional exceeds max_order_notional_cents")
+        if notional > available_cash:
+            return RiskDecision(False, "insufficient available cash including fees")
 
         return RiskDecision(True)
 
@@ -90,7 +115,10 @@ class RiskManager:
         result means no edge, so size 0.
         """
         p = price_cents / 100.0
-        if not 0.0 < p < 1.0:
+        if (
+            not 0.0 < p < 1.0 or not math.isfinite(edge_prob)
+            or not 0 <= edge_prob <= 1 or bankroll_cents <= 0
+        ):
             return 0
         full_kelly = (edge_prob - p) / (1.0 - p)
         if full_kelly <= 0:

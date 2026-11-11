@@ -37,7 +37,7 @@ def test_rejects_notional_breach() -> None:
 
 def test_approves_valid_order() -> None:
     rm = RiskManager(RiskLimits())
-    assert rm.check(_order(1), current_position=0).approved
+    assert rm.check(_order(1), current_position=0, available_cash=1000).approved
 
 
 def test_kelly_no_edge_returns_zero() -> None:

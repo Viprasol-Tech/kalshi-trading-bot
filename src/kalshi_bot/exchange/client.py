@@ -37,6 +37,11 @@ from kalshi_bot.exchange.models import (
     OrderRequest,
     Position,
 )
+from kalshi_bot.safety import (
+    SimulationOnlyError,
+    require_public_demo_url,
+    require_simulation,
+)
 
 API_PREFIX = "/trade-api/v2"
 
@@ -60,6 +65,10 @@ class KalshiClient:
         private_key: rsa.RSAPrivateKey | None = None,
         timeout: float = 10.0,
     ) -> None:
+        require_simulation()
+        require_public_demo_url(base_url)
+        if api_key_id or private_key is not None:
+            raise SimulationOnlyError("Simulation-only: exchange credentials are forbidden.")
         self._base_url = base_url.rstrip("/")
         self._api_key_id = api_key_id
         self._private_key = private_key
@@ -108,7 +117,13 @@ class KalshiClient:
         request.headers.update(headers)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        response = await self._client.request(method, API_PREFIX + path, **kwargs)
+        require_simulation()
+        require_public_demo_url(self._base_url)
+        if method.upper() != "GET" or not path.startswith("/markets"):
+            raise SimulationOnlyError("Simulation-only: exchange portfolio and writes are blocked.")
+        # httpx joins relative paths to base_url; do not append the API prefix twice.
+        suffix = path if self._base_url.endswith(API_PREFIX) else API_PREFIX + path
+        response = await self._client.request(method, suffix, **kwargs)
         if response.is_error:
             raise KalshiError(response.status_code, response.text)
         return response.json()  # type: ignore[no-any-return]
@@ -145,13 +160,11 @@ class KalshiClient:
 
     async def create_order(self, order: OrderRequest) -> Order:
         """Create an order (``POST /portfolio/orders``)."""
-        data = await self._request("POST", "/portfolio/orders", json=order.to_payload())
-        return Order.model_validate(data["order"])
+        raise SimulationOnlyError("Real order submission is permanently disabled on this branch.")
 
     async def cancel_order(self, order_id: str) -> Order:
         """Cancel an order by ID (``DELETE /portfolio/orders/{id}``)."""
-        data = await self._request("DELETE", f"/portfolio/orders/{order_id}")
-        return Order.model_validate(data["order"])
+        raise SimulationOnlyError("Exchange order mutations are permanently disabled.")
 
     async def get_orders(self, **params: Any) -> list[Order]:
         """List orders, optionally filtered by ``ticker``/``status``."""

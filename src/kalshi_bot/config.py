@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
+        frozen=True,
         env_prefix="KALSHI_",
         env_file=".env",
         env_file_encoding="utf-8",
@@ -98,6 +99,12 @@ class Settings(BaseSettings):
     def _strip_key(cls, value: str) -> str:
         """Trim accidental whitespace from a pasted key ID."""
         return value.strip()
+
+    @model_validator(mode="after")
+    def _simulation_only(self) -> Settings:
+        if self.environment is not Environment.DEMO or not self.dry_run or self.api_key_id:
+            raise ValueError("Simulation-only: demo, dry_run=true, and no credentials required.")
+        return self
 
     @property
     def rest_base_url(self) -> str:

@@ -15,6 +15,7 @@ import asyncio
 from kalshi_bot.exchange.client import KalshiClient
 from kalshi_bot.exchange.models import Order, OrderRequest, Position
 from kalshi_bot.risk.manager import RiskManager
+from kalshi_bot.safety import require_simulation
 from kalshi_bot.strategies.base import Strategy, StrategyContext
 from kalshi_bot.telemetry.logging import get_logger
 
@@ -32,6 +33,7 @@ class TradingEngine:
         dry_run: bool = True,
         poll_interval: float = 2.0,
     ) -> None:
+        require_simulation(dry_run=dry_run)
         self.client = client
         self.strategy = strategy
         self.risk = risk
@@ -50,16 +52,15 @@ class TradingEngine:
         return StrategyContext(market=market, positions=positions, balance=balance)
 
     async def _submit(self, order: OrderRequest, current_position: int) -> Order | None:
-        decision = self.risk.check(order, current_position)
+        require_simulation(dry_run=self.dry_run)
+        decision = self.risk.check(order, current_position, available_cash=None)
         if not decision.approved:
             logger.warning("Order vetoed by risk manager: %s | %s", decision.reason, order)
             return None
         if self.dry_run:
             logger.info("[DRY-RUN] would submit: %s", order.to_payload())
             return None
-        order_resp = await self.client.create_order(order)
-        logger.info("Submitted order %s for %s", order_resp.order_id, order.ticker)
-        return order_resp
+        raise RuntimeError("Simulation-only execution boundary.")
 
     async def run(self, ticker: str, max_ticks: int | None = None) -> None:
         """Run the engine on ``ticker`` until stopped or ``max_ticks`` reached."""

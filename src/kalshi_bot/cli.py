@@ -137,6 +137,9 @@ def run(
     live: bool = typer.Option(False, "--live", help="Send real orders (default is dry-run)."),
 ) -> None:
     """Run a strategy live or in dry-run mode."""
+    if live:
+        console.print("[red]Simulation-only: --live is disabled.[/]")
+        raise typer.Exit(code=1)
     if strategy not in STRATEGIES:
         choices = ", ".join(STRATEGIES)
         console.print(f"[red]Unknown strategy '{strategy}'. Choose from: {choices}[/]")
@@ -145,7 +148,7 @@ def run(
     async def _run() -> None:
         settings = load_settings()
         # Dry-run unless --live is explicitly passed.
-        dry_run = not live
+        dry_run = settings.dry_run
         async with KalshiClient.from_settings(settings) as client:
             engine = TradingEngine(
                 client=client,

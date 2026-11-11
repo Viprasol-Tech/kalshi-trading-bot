@@ -21,7 +21,8 @@ import websockets
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from kalshi_bot.config import Settings
-from kalshi_bot.exchange.auth import build_auth_headers, load_private_key
+from kalshi_bot.exchange.auth import build_auth_headers
+from kalshi_bot.safety import SimulationOnlyError
 
 WS_PATH = "/trade-api/ws/v2"
 
@@ -35,6 +36,7 @@ class KalshiWebSocket:
         api_key_id: str,
         private_key: rsa.RSAPrivateKey,
     ) -> None:
+        raise SimulationOnlyError("Authenticated exchange WebSockets are disabled.")
         self._ws_url = ws_url
         self._api_key_id = api_key_id
         self._private_key = private_key
@@ -43,10 +45,7 @@ class KalshiWebSocket:
     @classmethod
     def from_settings(cls, settings: Settings) -> KalshiWebSocket:
         """Build a WebSocket client from settings (requires credentials)."""
-        if not settings.api_key_id:
-            raise ValueError("WebSocket auth requires KALSHI_API_KEY_ID to be set.")
-        private_key = load_private_key(settings.private_key_path)
-        return cls(settings.ws_base_url, settings.api_key_id, private_key)
+        raise SimulationOnlyError("Authenticated exchange WebSockets are disabled.")
 
     def _handshake_headers(self) -> dict[str, str]:
         path = urlsplit(self._ws_url).path or WS_PATH

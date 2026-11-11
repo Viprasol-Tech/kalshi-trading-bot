@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Side(str, Enum):
@@ -61,7 +61,9 @@ class Market(BaseModel):
 class OrderRequest(BaseModel):
     """Payload for creating an order (``POST /portfolio/orders``)."""
 
-    ticker: str
+    model_config = ConfigDict(frozen=True)
+
+    ticker: str = Field(min_length=1)
     action: Action
     side: Side
     count: int = Field(gt=0, description="Number of contracts.")
@@ -71,6 +73,28 @@ class OrderRequest(BaseModel):
     time_in_force: TimeInForce | None = None
     client_order_id: str | None = None
     post_only: bool | None = None
+
+    @model_validator(mode="after")
+    def _validate_limit(self) -> OrderRequest:
+        if self.type is not OrderType.LIMIT:
+            raise ValueError("Simulation supports only priced limit orders.")
+        if (self.yes_price is None) == (self.no_price is None):
+            raise ValueError("Exactly one limit price is required.")
+        if (self.side is Side.YES) != (self.yes_price is not None):
+            raise ValueError("Limit price must match the contract side.")
+        return self
+
+    @property
+    def limit_price(self) -> int:
+        price = self.yes_price if self.side is Side.YES else self.no_price
+        if price is None:
+            raise ValueError("Missing limit price.")
+        return price
+
+    @property
+    def signed_count(self) -> int:
+        direction = 1 if self.side is Side.YES else -1
+        return direction * self.count * (1 if self.action is Action.BUY else -1)
 
     def to_payload(self) -> dict[str, object]:
         """Serialise to the JSON body Kalshi expects, omitting unset fields."""
@@ -133,8 +157,12 @@ class Fill(BaseModel):
 
     @property
     def signed_count(self) -> int:
-        """Position delta: positive for buys, negative for sells."""
-        return self.count if self.action is Action.BUY else -self.count
+        """Net-YES position delta, including the NO-side inversion."""
+        return (
+            self.count
+            * (1 if self.action is Action.BUY else -1)
+            * (1 if self.side is Side.YES else -1)
+        )
 
 
 class OrderBookLevel(BaseModel):
