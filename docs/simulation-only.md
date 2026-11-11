@@ -7,6 +7,9 @@ are rejected. Public unsigned **demo** market/series GET requests are the only
 permitted Kalshi network operations. The default remains `KALSHI_ENVIRONMENT=demo` and
 `KALSHI_DRY_RUN=true`; overriding them fails closed rather than enabling trading.
 No credentials are required or loaded. Authenticated WebSockets are disabled.
+Phase 4 also permits unsigned demo historical cutoff/market/candlestick reads.
+Private historical orders, fills and positions remain forbidden at both request
+boundaries. The historical audit never changes the paper account.
 
 ## Safety corrections
 
@@ -112,3 +115,8 @@ Phase 4: historical BTC replay, fee-schedule verification and empirical fill
 assumptions, calibration evaluation and a sample-size-aware paper performance
 report. No historical data was supplied or fetched in Phases 1–3; no historical
 BTC backtest or profitability claim has been made.
+
+The [Phase 4 report](phase-4-validation.md) records the bounded historical-data
+audit, a tiny as-observed smoke replay, remaining data gaps and the new recording
+and offline replay commands. Tools are implemented; a statistically meaningful
+historical trading backtest and calibration are not completed.

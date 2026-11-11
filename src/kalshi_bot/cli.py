@@ -8,6 +8,7 @@ Part of the Kalshi Trading Bot by Viprasol Tech Private Limited.
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import typer
@@ -134,13 +135,20 @@ def btc_paper(
     ticks: int = typer.Option(1, min=1, max=1800, help="Bounded paper polling cycles."),
     interval: float = typer.Option(2.0, min=1, max=5, help="Seconds between observations."),
     calibration: Path | None = typer.Option(None, help="Observed out-of-time calibration JSON."),
+    record: Path | None = typer.Option(
+        None,
+        help="Append normalized observations to a .jsonl file.",
+    ),
 ) -> None:
     """Discover verified demo BTC 15-minute markets; never submit real orders."""
     from kalshi_bot.btc_data import CoinbaseReference, DemoBTCSource
     from kalshi_bot.btc_model import CalibrationArtifact
+    from kalshi_bot.btc_replay import append_observation
     from kalshi_bot.btc_strategy import BTCPaperRunner
 
     artifact = None
+    if record is not None and record.suffix != ".jsonl":
+        raise typer.BadParameter("Observation recording requires a .jsonl data file.")
     if calibration is not None:
         if calibration.stat().st_size > 5_000_000:
             raise typer.BadParameter("Calibration artifact exceeds 5 MB.")
@@ -152,7 +160,15 @@ def btc_paper(
         reference = CoinbaseReference()
         try:
             async with KalshiClient.from_settings(settings) as client:
-                runner = BTCPaperRunner(broker, DemoBTCSource(client), reference, artifact)
+                runner = BTCPaperRunner(
+                    broker,
+                    DemoBTCSource(client),
+                    reference,
+                    artifact,
+                    recorder=(lambda event: append_observation(record, event))
+                    if record is not None
+                    else None,
+                )
                 report = await runner.run(ticks=ticks, interval=interval)
                 console.print_json(data=report)
         finally:
@@ -162,20 +178,78 @@ def btc_paper(
     asyncio.run(_run())
 
 
-@app.command()
-def balance() -> None:
-    """Show your portfolio balance (requires credentials)."""
+@app.command("btc-history-audit")
+def btc_history_audit(
+    limit: int = typer.Option(200, min=1, max=200),
+    output: Path = typer.Option(Path("data/btc-history-audit.json")),
+) -> None:
+    """Audit public demo labels/candles; never manufacture executable depth."""
+    from kalshi_bot.btc_data import DemoBTCSource
+    from kalshi_bot.btc_history import history_audit
 
     async def _run() -> None:
         settings = load_settings()
         async with KalshiClient.from_settings(settings) as client:
-            if not client.authenticated:
-                console.print("[red]No credentials configured. Set KALSHI_API_KEY_ID.[/]")
-                raise typer.Exit(code=1)
-            bal = await client.get_balance()
-            console.print(f"Balance: [bold green]${bal.balance / 100:,.2f}[/]")
+            report = await history_audit(DemoBTCSource(client), limit)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        summary = {
+            k: v
+            for k, v in report.items()
+            if k not in {"candlestick_probes", "raw_finalized_markets", "coinbase_candles"}
+        }
+        summary["output"] = str(output)
+        summary["candle_probe_count"] = len(report["candlestick_probes"])
+        console.print_json(data=summary)
 
     asyncio.run(_run())
+
+
+@app.command("btc-replay")
+def btc_replay(
+    observations: Path = typer.Argument(..., exists=True, dir_okay=False),
+    output: Path = typer.Option(Path("data/btc-replay-report.json")),
+) -> None:
+    """Replay recorded public observations offline; no calibration bypass."""
+    from kalshi_bot.btc_replay import replay
+
+    async def _run() -> None:
+        # No artifact creation/loading or promotion: observation-only evaluation.
+        blocked = False
+        try:
+            report, events = await replay(observations)
+        except (ValueError, OSError) as exc:
+            blocked = True
+            report = {
+                "status": "blocked_invalid_or_inadequate_archive",
+                "reason": str(exc),
+                "historical_win_rate": None,
+                "historical_pnl_cents": None,
+                "historical_maximum_drawdown": None,
+                "historical_calibration": None,
+                "promotion_allowed": False,
+                "persistent_bankroll_modified": False,
+            }
+            events = []
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        audit_path = output.with_name(output.stem + "-events.jsonl")
+        audit_path.write_text(
+            "".join(json.dumps(event) + "\n" for event in events),
+            encoding="utf-8",
+        )
+        console.print_json(data=report)
+        if blocked:
+            raise typer.Exit(code=2)
+
+    asyncio.run(_run())
+
+
+@app.command()
+def balance() -> None:
+    """Exchange balances are disabled; use paper-status for the simulated account."""
+    console.print("[red]Exchange account access is disabled. Use paper-status; do not add keys.[/]")
+    raise typer.Exit(code=1)
 
 
 @app.command()
@@ -183,9 +257,9 @@ def run(
     strategy: str = typer.Argument(..., help=f"One of: {', '.join(STRATEGIES)}"),
     ticker: str = typer.Argument(..., help="Market ticker to trade."),
     ticks: int = typer.Option(5, help="Number of poll cycles before stopping."),
-    live: bool = typer.Option(False, "--live", help="Send real orders (default is dry-run)."),
+    live: bool = typer.Option(False, "--live", help="Blocked on this simulation-only branch."),
 ) -> None:
-    """Run a strategy live or in dry-run mode."""
+    """Run a paper strategy using unsigned public demo market data."""
     if live:
         console.print("[red]Simulation-only: --live is disabled.[/]")
         raise typer.Exit(code=1)
@@ -196,7 +270,7 @@ def run(
 
     async def _run() -> None:
         settings = load_settings()
-        # Dry-run unless --live is explicitly passed.
+        # Settings and both execution boundaries enforce simulation-only operation.
         dry_run = settings.dry_run
         async with KalshiClient.from_settings(settings) as client:
             engine = TradingEngine(

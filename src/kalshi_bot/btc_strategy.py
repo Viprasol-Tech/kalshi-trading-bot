@@ -6,6 +6,7 @@ import asyncio
 import json
 import math
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from decimal import Decimal
 from typing import Any
@@ -84,10 +85,15 @@ class BTCPaperRunner:
         source: DemoBTCSource,
         reference: CoinbaseReference,
         calibration: CalibrationArtifact | None = None,
+        *,
+        clock: Callable[[], float] | None = None,
+        recorder: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         require_simulation()
         self.broker, self.source, self.reference = broker, source, reference
         self.calibration = calibration
+        self.clock = clock or time.time
+        self.recorder = recorder
         self.db = broker.db
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS btc_reference (
@@ -114,6 +120,15 @@ class BTCPaperRunner:
 
     def _record(self, kind: str, **data: Any) -> None:
         self.broker.record_event("btc_" + kind, data)
+        if self.recorder is not None and kind == "skipped":
+            self.recorder(
+                {
+                    "kind": "skip",
+                    "observed_at": self.clock(),
+                    "ticker": data.get("ticker"),
+                    "reason": str(data["reason"]),
+                }
+            )
 
     def _remember(self, tick: ReferenceTick) -> list[ReferenceTick]:
         with self.broker._transaction():
@@ -193,7 +208,22 @@ class BTCPaperRunner:
                 self._record("outcome_pending", ticker=market.ticker)
                 continue
             payout, evidence = result
-            self.broker.settle(market.ticker, payout, source=evidence, confirmed=True, now=now)
+            confirmed_at = max(now, self.clock())
+            if self.recorder is not None:
+                self.recorder(
+                    {
+                        "kind": "outcome",
+                        "observed_at": confirmed_at,
+                        **self.source.last_result,
+                    }
+                )
+            self.broker.settle(
+                market.ticker,
+                payout,
+                source=evidence,
+                confirmed=True,
+                now=confirmed_at,
+            )
             with self.broker._transaction():
                 self.db.execute(
                     "UPDATE btc_entries SET outcome=? WHERE ticker=?",
@@ -201,7 +231,7 @@ class BTCPaperRunner:
                 )
                 self.db.execute(
                     "UPDATE btc_forecasts SET outcome=?,resolved_at=?,evidence=? WHERE ticker=?",
-                    (1 if payout == 100 else 0, now, evidence, market.ticker),
+                    (1 if payout == 100 else 0, confirmed_at, evidence, market.ticker),
                 )
             self._record(
                 "outcome", ticker=market.ticker, yes_outcome=payout // 100, source=evidence
@@ -213,14 +243,24 @@ class BTCPaperRunner:
 
     async def step(self) -> None:
         require_simulation()
-        now = time.time()
+        now = self.clock()
         markets, skipped = await self.source.discover()
         for skip in skipped:
             self._record("skipped", **skip)
         if not markets:
             self._record("skipped", reason="no verified active demo BTC 15-minute markets")
-        ticks = self._remember(await self.reference.tick())
-        await self._settle_known(time.time())
+        tick = await self.reference.tick()
+        reference_received_at = self.clock()
+        if self.recorder is not None:
+            self.recorder(
+                {
+                    "kind": "reference",
+                    "observed_at": reference_received_at,
+                    "reference": tick.model_dump(),
+                }
+            )
+        ticks = self._remember(tick)
+        await self._settle_known(self.clock())
         marks: dict[str, PaperQuote] = {}
         active = {m.ticker for m in markets}
         for row in self.db.execute("SELECT ticker FROM btc_markets").fetchall():
@@ -239,10 +279,21 @@ class BTCPaperRunner:
                         "INSERT OR IGNORE INTO btc_markets VALUES(?,?)", (market.ticker, metadata)
                     )
                 current, book = await self.source.refresh(market)
-                now = time.time()
+                now = self.clock()
                 if not self.broker.quote_is_usable(book, now=now):
                     raise ValueError("Stale or repeated executable book.")
                 marks[market.ticker] = book
+                if self.recorder is not None:
+                    self.recorder(
+                        {
+                            "kind": "frame",
+                            "observed_at": now,
+                            "reference_received_at": reference_received_at,
+                            "reference": tick.model_dump(),
+                            "quote": book.model_dump(),
+                            **self.source.last_metadata,
+                        }
+                    )
                 forecast = estimate(ticks, current.strike, current.closes_at, now=now)
                 # Preserve the FIRST forecast in each horizon bucket, including rejected
                 # signals. Future evaluation can use a predeclared sample rather than
@@ -297,9 +348,26 @@ class BTCPaperRunner:
                 if existing and any(o.side is not choice.side for o in existing):
                     raise ValueError("Signal side changed; cancel pending entry")
                 # Recheck pending orders at their actual limit, not a cheaper current ask.
-                lower_p = choice.probability - gate["probability_haircut"]
-                if any(lower_p - (o.limit_price + FEE_PER_CONTRACT) / 100 < 0.08 for o in existing):
+                if any(
+                    Decimal(str(choice.probability))
+                    - Decimal(str(gate["probability_haircut"]))
+                    - Decimal(o.limit_price + FEE_PER_CONTRACT) / 100
+                    < Decimal("0.08")
+                    for o in existing
+                ):
                     raise ValueError("Existing limit no longer meets required net edge")
+                pending_times = [
+                    r["created"]
+                    for r in self.broker.rows("orders")
+                    if r["ticker"] == market.ticker and r["status"] == "pending"
+                ]
+                if pending_times and book.observed_at - min(pending_times) < 1:
+                    self._record(
+                        "skipped",
+                        ticker=market.ticker,
+                        reason="minimum one-second fill latency not reached",
+                    )
+                    continue
                 self.broker.process_quote(book, now=now)
                 self._entry(current, forecast, choice, now)
             except (ValueError, KeyError, TypeError) as exc:
@@ -307,7 +375,7 @@ class BTCPaperRunner:
                 self._record("skipped", ticker=market.ticker, reason=str(exc))
         with self.broker._transaction():
             self.db.execute(
-                "INSERT INTO btc_equity VALUES(?,?)", (time.time(), self.broker.equity(marks))
+                "INSERT INTO btc_equity VALUES(?,?)", (self.clock(), self.broker.equity(marks))
             )
 
     async def run(self, ticks: int = 1, interval: float = 2) -> dict[str, Any]:
@@ -323,7 +391,7 @@ class BTCPaperRunner:
                     with self.broker._transaction():
                         self.db.execute(
                             "INSERT INTO btc_equity VALUES(?,?)",
-                            (time.time(), self.broker.equity({})),
+                            (self.clock(), self.broker.equity({})),
                         )
                 if index + 1 < ticks:
                     await asyncio.sleep(interval)
@@ -356,6 +424,27 @@ class BTCPaperRunner:
         for row in forecast_rows:
             first_by_market.setdefault(row["ticker"], row)
         forecast_errors = [(r["probability"] - r["outcome"]) ** 2 for r in first_by_market.values()]
+        ece = None
+        if first_by_market:
+            ece = 0.0
+            for bucket in range(5):
+                group = [
+                    r
+                    for r in first_by_market.values()
+                    if min(4, int(r["probability"] * 5)) == bucket
+                ]
+                if group:
+                    ece += abs(sum(r["probability"] - r["outcome"] for r in group)) / len(
+                        first_by_market
+                    )
+        win_interval = None
+        if closed:
+            n, z = len(closed), 1.959963984540054
+            p = wins / n
+            denominator = 1 + z * z / n
+            center = (p + z * z / (2 * n)) / denominator
+            half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denominator
+            win_interval = [max(0, center - half), min(1, center + half)]
         return {
             "mode": "demo-paper-only",
             "account": self.broker.account(),
@@ -366,6 +455,7 @@ class BTCPaperRunner:
             "entry_attempts": len(entries),
             "settled_filled_markets": len(closed),
             "win_rate": wins / len(closed) if closed else None,
+            "win_rate_95pct_wilson_interval": win_interval,
             "net_liquidation_pnl_cents": curve[-1] - curve[0],
             "maximum_drawdown": drawdown,
             "outcome_sample_size": len(settled),
@@ -374,6 +464,7 @@ class BTCPaperRunner:
             "forecast_brier": (
                 sum(forecast_errors) / len(forecast_errors) if forecast_errors else None
             ),
+            "forecast_ece_5_bins": ece,
             "calibration_loaded": self.calibration is not None,
             "calibration_status": (
                 "requires empirical gate on every signal"

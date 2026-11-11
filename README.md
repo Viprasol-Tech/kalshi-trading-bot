@@ -12,6 +12,8 @@
 > runner discovers demo markets but **blocks entries without matching observed
 > out-of-time calibration**. No validated calibration artifact or historical
 > BTC performance claim is included. See [Phase 3](docs/phase-3-btc.md).
+> [Phase 4's data audit and replay tools](docs/phase-4-validation.md) are implemented;
+> empirical historical trading performance remains **blocked by insufficient data**.
 
 <p align="center">
   <strong>Open-source algorithmic trading framework for <a href="https://kalshi.com">Kalshi</a> prediction markets.</strong><br>
@@ -28,7 +30,7 @@
   <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue?style=flat-square&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/typed-mypy%20strict-2a6db2?style=flat-square&logo=python&logoColor=white" alt="mypy strict">
   <img src="https://img.shields.io/badge/code%20style-ruff-000000?style=flat-square&logo=ruff&logoColor=white" alt="Ruff">
-  <img src="https://img.shields.io/badge/tests-163%20passing-brightgreen?style=flat-square&logo=pytest&logoColor=white" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-181%20passing-brightgreen?style=flat-square&logo=pytest&logoColor=white" alt="Tests">
   <img src="https://img.shields.io/badge/version-0.2.0-purple?style=flat-square" alt="Version">
   <a href="https://t.me/viprasol_help"><img src="https://img.shields.io/badge/Telegram-support-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram"></a>
   <a href="https://github.com/Viprasol-Tech/kalshi-trading-bot/stargazers"><img src="https://img.shields.io/github/stars/Viprasol-Tech/kalshi-trading-bot?style=flat-square&logo=github" alt="Stars"></a>

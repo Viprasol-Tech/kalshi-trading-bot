@@ -113,7 +113,8 @@ paper ledger. One durable intent per market prevents duplicate orders and
 re-entry after cancellation, rejection or restart.
 
 Submission only reserves cash. A later eligible quote may fill partially or
-not at all. Pending orders are rechecked against their actual limits before
+not at all. Phase 4 adds a minimum one-second simulated fill latency.
+Pending orders are rechecked against their actual limits before
 fills; stale data, a missing/failed calibration gate, changed side or lost edge
 cancels them. Polling ends with pending orders cancelled.
 
@@ -176,3 +177,7 @@ timestamp-aligned historical books and proxy/index data, independently verified
 labels, fee-schedule/latency/depth checks and an out-of-time, sample-size-aware
 performance report. Do not interpret a passing gate implementation as proof
 that a real dataset will pass it. No live or production enabling is planned.
+
+See the [Phase 4 data audit and replay report](phase-4-validation.md) for the
+subsequent implementation and evidence. Historical execution/calibration remains
+blocked; no artifact has been promoted into this runner.

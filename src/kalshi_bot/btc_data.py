@@ -32,6 +32,8 @@ def validate_response(response: httpx.Response, started: float) -> float:
 class DemoBTCSource:
     def __init__(self, client: KalshiClient) -> None:
         self.client = client
+        self.last_metadata: dict[str, Any] = {}
+        self.last_result: dict[str, Any] = {}
 
     async def get(
         self,
@@ -83,11 +85,17 @@ class DemoBTCSource:
         self,
         market: VerifiedMarket,
     ) -> tuple[VerifiedMarket, PaperQuote]:
-        data, _ = await self.get("/series/" + SERIES)
+        data, series_received = await self.get("/series/" + SERIES)
         details, received = await self.get("/markets/" + quote(market.ticker, safe=""))
         current = verify_market(details["market"], data["series"], now=received)
         if current != market:
             raise ValueError("Market metadata changed after discovery.")
+        self.last_metadata = {
+            "series": data["series"],
+            "market": details["market"],
+            "metadata_received_at": received,
+            "series_received_at": series_received,
+        }
         book, observed = await self.get("/markets/" + quote(market.ticker, safe="") + "/orderbook")
         return current, orderbook_quote(book, current.ticker, observed)
 
@@ -102,6 +110,7 @@ class DemoBTCSource:
         series, received = await self.get("/series/" + SERIES)
         if verify_market(raw, series["series"], now=received, finalized=True) != market:
             raise ValueError("Finalized market rules or strike changed; manual review required.")
+        self.last_result = {"series": series["series"], "market": raw}
         return (
             100 if raw["result"] == "yes" else 0,
             "https://demo-api.kalshi.co/trade-api/v2/markets/" + quote(ticker, safe=""),

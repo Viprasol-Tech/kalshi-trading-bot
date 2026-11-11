@@ -1,8 +1,7 @@
-"""Async Kalshi REST client with RSA-PSS request signing.
+"""Unsigned, read-only demo Kalshi market-data client.
 
-Wraps the public market-data endpoints and the authenticated portfolio/trading
-endpoints under ``/trade-api/v2``. Auth headers are attached automatically to
-every request via an httpx event hook.
+The final HTTP hook rejects production, credentials, private portfolio/history
+routes and all writes. No private key is loaded and no request is signed.
 
 Example:
     ```python
@@ -11,7 +10,6 @@ Example:
 
     settings = load_settings()
     async with KalshiClient.from_settings(settings) as client:
-        balance = await client.get_balance()
         markets = await client.get_markets(status="open", limit=10)
     ```
 
@@ -42,6 +40,15 @@ from kalshi_bot.safety import (
 )
 
 API_PREFIX = "/trade-api/v2"
+
+
+def public_read_path(path: str) -> bool:
+    """Allow market data, never private historical orders/fills/positions."""
+    return (
+        path == "/markets"
+        or path.startswith(("/markets/", "/series/", "/historical/markets/"))
+        or path in ("/historical/cutoff", "/historical/markets")
+    )
 
 
 class KalshiError(RuntimeError):
@@ -78,11 +85,7 @@ class KalshiClient:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> KalshiClient:
-        """Build a client from :class:`~kalshi_bot.config.Settings`.
-
-        Loads the RSA private key only when an API key ID is configured, so the
-        client can still be used for public market data without credentials.
-        """
+        """Build a demo data client; reject credentials before accessing any key."""
         require_simulation(dry_run=settings.dry_run)
         if settings.api_key_id or settings.environment.value != "demo":
             raise SimulationOnlyError("Simulation-only: credentials and production are forbidden.")
@@ -103,11 +106,8 @@ class KalshiClient:
         require_public_demo_url(f"{parsed.scheme}://{parsed.netloc}")
         if (
             request.method != "GET"
-            or not (
-                parsed.path == API_PREFIX + "/markets"
-                or parsed.path.startswith(API_PREFIX + "/markets/")
-                or parsed.path.startswith(API_PREFIX + "/series/")
-            )
+            or not parsed.path.startswith(API_PREFIX + "/")
+            or not public_read_path(parsed.path.removeprefix(API_PREFIX))
             or any(
                 k.lower().startswith(("authorization", "kalshi-access")) for k in request.headers
             )
@@ -117,9 +117,7 @@ class KalshiClient:
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         require_simulation()
         require_public_demo_url(self._base_url)
-        if method.upper() != "GET" or not (
-            path == "/markets" or path.startswith(("/markets/", "/series/"))
-        ):
+        if method.upper() != "GET" or not public_read_path(path):
             raise SimulationOnlyError("Simulation-only: exchange portfolio and writes are blocked.")
         # httpx joins relative paths to base_url; do not append the API prefix twice.
         suffix = path if self._base_url.endswith(API_PREFIX) else API_PREFIX + path
