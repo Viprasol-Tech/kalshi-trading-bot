@@ -20,7 +20,6 @@ Part of the Kalshi Trading Bot by Viprasol Tech Private Limited.
 
 from __future__ import annotations
 
-import time
 from types import TracebackType
 from typing import Any
 from urllib.parse import urlsplit
@@ -29,7 +28,6 @@ import httpx
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from kalshi_bot.config import Settings
-from kalshi_bot.exchange.auth import build_auth_headers, load_private_key
 from kalshi_bot.exchange.models import (
     Balance,
     Market,
@@ -85,13 +83,11 @@ class KalshiClient:
         Loads the RSA private key only when an API key ID is configured, so the
         client can still be used for public market data without credentials.
         """
-        private_key = None
-        if settings.api_key_id:
-            private_key = load_private_key(settings.private_key_path)
+        require_simulation(dry_run=settings.dry_run)
+        if settings.api_key_id or settings.environment.value != "demo":
+            raise SimulationOnlyError("Simulation-only: credentials and production are forbidden.")
         return cls(
             base_url=settings.rest_base_url,
-            api_key_id=settings.api_key_id or None,
-            private_key=private_key,
             timeout=settings.request_timeout,
         )
 
@@ -101,20 +97,21 @@ class KalshiClient:
         return self._api_key_id is not None and self._private_key is not None
 
     async def _sign_request(self, request: httpx.Request) -> None:
-        """httpx event hook: attach Kalshi auth headers to every request.
-
-        The signed path includes the ``/trade-api/v2`` prefix and excludes the
-        query string.
-        """
-        if not self.authenticated:
-            return
-        assert self._api_key_id is not None and self._private_key is not None
-        path = urlsplit(str(request.url)).path
-        timestamp_ms = int(time.time() * 1000)
-        headers = build_auth_headers(
-            self._api_key_id, self._private_key, timestamp_ms, request.method, path
-        )
-        request.headers.update(headers)
+        """Final network boundary: public demo market GETs only, never signed."""
+        require_simulation()
+        parsed = urlsplit(str(request.url))
+        require_public_demo_url(f"{parsed.scheme}://{parsed.netloc}")
+        if (
+            request.method != "GET"
+            or not (
+                parsed.path == API_PREFIX + "/markets"
+                or parsed.path.startswith(API_PREFIX + "/markets/")
+            )
+            or any(
+                k.lower().startswith(("authorization", "kalshi-access")) for k in request.headers
+            )
+        ):
+            raise SimulationOnlyError("Only unsigned public demo market reads are allowed.")
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         require_simulation()

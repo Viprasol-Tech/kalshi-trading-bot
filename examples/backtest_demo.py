@@ -40,11 +40,11 @@ def main() -> None:
     """Run each strategy through the backtester and render its metrics."""
     console = Console()
     snapshots = random_walk_snapshots(ticker="DEMO-MARKET", n=250, seed=42)
-    # A 1c-per-contract fee makes the simulation a touch more realistic.
+    # Conservative simulation assumptions; not a verified exchange fee schedule.
     backtester = Backtester(
-        starting_balance_cents=100_000,
+        starting_balance_cents=5000,
         risk=RiskManager(),
-        fee_cents_per_contract=1,
+        fee_cents_per_contract=2,
     )
 
     console.print(

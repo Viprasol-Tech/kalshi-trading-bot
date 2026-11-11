@@ -56,6 +56,12 @@ class Market(BaseModel):
     last_price: int | None = None
     volume: int | None = None
     open_interest: int | None = None
+    observed_at: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    quote_id: str | None = None
+    yes_bid_size: int = Field(default=0, ge=0)
+    yes_ask_size: int = Field(default=0, ge=0)
+    no_bid_size: int = Field(default=0, ge=0)
+    no_ask_size: int = Field(default=0, ge=0)
 
 
 class OrderRequest(BaseModel):

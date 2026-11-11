@@ -20,6 +20,7 @@ from kalshi_bot.backtesting.report import render as render_report
 from kalshi_bot.config import load_settings
 from kalshi_bot.core.engine import TradingEngine
 from kalshi_bot.exchange.client import KalshiClient
+from kalshi_bot.paper import PaperBroker
 from kalshi_bot.risk.manager import RiskManager
 from kalshi_bot.strategies.base import Strategy
 from kalshi_bot.strategies.examples.arbitrage import ArbitrageYesNo
@@ -72,7 +73,7 @@ def strategies() -> None:
 def backtest(
     strategy: str = typer.Argument("momentum", help=f"One of: {', '.join(STRATEGIES)}"),
     ticks: int = typer.Option(200, help="Number of synthetic snapshots to replay."),
-    balance: int = typer.Option(100_000, help="Starting balance in cents."),
+    balance: int = typer.Option(5000, help="Paper balance in cents (maximum 5000)."),
     seed: int = typer.Option(42, help="RNG seed for the synthetic random walk."),
 ) -> None:
     """Backtest a strategy on synthetic data and print a metrics report.
@@ -111,6 +112,20 @@ def markets(
             console.print(table)
 
     asyncio.run(_run())
+
+
+@app.command("paper-status")
+def paper_status() -> None:
+    """Show the persistent $50 paper ledger; never query an exchange account."""
+    broker = PaperBroker()
+    try:
+        for name, value in broker.account().items():
+            console.print(f"{name}: {value} cents")
+        console.print(f"pending_orders: {len(broker.pending())}")
+        console.print(f"fills: {len(broker.rows('fills'))}")
+        console.print(f"settlements: {len(broker.rows('settlements'))}")
+    finally:
+        broker.close()
 
 
 @app.command()

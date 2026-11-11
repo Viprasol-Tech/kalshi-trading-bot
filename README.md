@@ -4,6 +4,13 @@
 
 <h1 align="center">Kalshi Trading Bot</h1>
 
+> **Simulation-only safety branch (Phases 1 and 2).** Live orders, production
+> configuration and exchange credentials are blocked, regardless of older
+> examples below. The paper account starts at $50 with a $1 maximum entry loss
+> including estimated fees. See [the simulation guide](docs/simulation-only.md)
+> for execution assumptions and limitations. BTC discovery/estimation and
+> historical BTC validation have **not** been implemented.
+
 <p align="center">
   <strong>Open-source algorithmic trading framework for <a href="https://kalshi.com">Kalshi</a> prediction markets.</strong><br>
   Backtest, paper-trade, and deploy event-contract strategies in Python — with real metrics, real risk controls, and dry-run by default.
@@ -47,7 +54,7 @@
 - 📊 **Backtester with real metrics** — Sharpe, max drawdown, volatility, win rate, profit factor, fees, and per-trade PnL.
 - 🎲 **Offline synthetic data** — backtest and demo with zero network or credentials.
 - 🧱 **Typed models** — `Market`, `OrderBook`, `Fill`, `Position`, `Portfolio` (pydantic v2 throughout).
-- 🏜️ **Dry-run by default** — orders are simulated until you explicitly go `--live`.
+- 🏜️ **Simulation-only** — real orders and `--live` are disabled on this branch.
 - 🖥️ **Rich Typer CLI** — `markets`, `balance`, `run`, `backtest`, `strategies`, `version`.
 - 🌎 **Demo + production** environments with fully configurable base URLs.
 - ⚙️ **Modern tooling** — `pyproject.toml`, ruff, mypy (strict), pytest, Docker, GitHub Actions, mkdocs.
@@ -59,7 +66,7 @@
 ```bash
 git clone https://github.com/Viprasol-Tech/kalshi-trading-bot.git
 cd kalshi-trading-bot
-cp .env.example .env          # then edit .env with your Kalshi API key ID
+cp .env.example .env          # leave credentials empty; demo/dry-run only
 docker compose run --rm bot markets --status open --limit 10
 ```
 
@@ -101,22 +108,20 @@ A backtest prints a metrics table like this:
 +----------------------------------+
 ```
 
-## 🔑 Getting Kalshi credentials
+## 🔒 Simulation-only configuration
 
-1. Create a key in the Kalshi dashboard → **Profile → API Keys**. You receive an **API Key ID** and a one-time **RSA private key** download.
-2. Save the private key as `./secrets/kalshi_private_key.pem` (this path is git-ignored).
-3. Put your key ID in `.env`:
+Do not add exchange credentials or private keys on this branch.
 
 ```dotenv
-KALSHI_API_KEY_ID=your-key-id-uuid
-KALSHI_PRIVATE_KEY_PATH=./secrets/kalshi_private_key.pem
-KALSHI_ENVIRONMENT=demo                       # 'demo' (sandbox) or 'prod'
+KALSHI_API_KEY_ID=
+KALSHI_ENVIRONMENT=demo
 KALSHI_DRY_RUN=true
 KALSHI_RISK__MAX_CONTRACTS_PER_ORDER=100      # nested risk limits, override any
 KALSHI_RISK__KELLY_FRACTION=0.25
 ```
 
-> 🔒 **Never commit your private key or `.env`.** See [SECURITY.md](SECURITY.md).
+Use `kalshi-bot paper-status` for the simulated account. Production configuration,
+credentials and `--live` fail closed. See [the paper guide](docs/simulation-only.md).
 
 ## 🏗️ Architecture
 
@@ -170,10 +175,16 @@ class BuyCheapYes(Strategy):
     def on_market_data(self, ctx: StrategyContext) -> list[OrderRequest]:
         m = ctx.market
         if m.yes_ask is not None and m.yes_ask < 20 and ctx.position_for(m.ticker) == 0:
-            return [OrderRequest(
-                ticker=m.ticker, action=Action.BUY, side=Side.YES,
-                count=1, type=OrderType.LIMIT, yes_price=m.yes_ask,
-            )]
+            return [
+                OrderRequest(
+                    ticker=m.ticker,
+                    action=Action.BUY,
+                    side=Side.YES,
+                    count=1,
+                    type=OrderType.LIMIT,
+                    yes_price=m.yes_ask,
+                )
+            ]
         return []
 ```
 
@@ -186,9 +197,10 @@ from kalshi_bot.backtesting.data import random_walk_snapshots
 from kalshi_bot.backtesting.engine import Backtester
 from kalshi_bot.strategies.examples.mean_reversion import MeanReversion
 
-snapshots = random_walk_snapshots(n=250, seed=42)          # offline, deterministic
-report = Backtester(starting_balance_cents=100_000, fee_cents_per_contract=1).run(
-    MeanReversion(window=20, z=1.5), snapshots,
+snapshots = random_walk_snapshots(n=250, seed=42)  # offline, deterministic
+report = Backtester(starting_balance_cents=5000, fee_cents_per_contract=2).run(
+    MeanReversion(window=20, z=1.5),
+    snapshots,
 )
 
 print(report.summary())
@@ -225,7 +237,8 @@ The project is **mypy-strict** and ships **56 tests** covering auth, models, ris
 ## ❓ FAQ
 
 **Does this place real trades out of the box?**
-No. Everything defaults to **dry-run** — orders are logged, not sent. You must pass `--live` and configure valid credentials to trade for real.
+No. This branch permits **paper execution only**. `--live`, production settings,
+and exchange credentials are rejected, and exchange write operations are blocked.
 
 **Do I need a Kalshi account to try it?**
 No. `kalshi-bot backtest` and the examples run fully offline on synthetic data, and `kalshi-bot markets` reads public data without credentials.

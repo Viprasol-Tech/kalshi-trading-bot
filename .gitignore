@@ -30,6 +30,8 @@ site/
 
 # --- Data / logs -------------------------------------------------------------
 data/*.db
+data/*.db-wal
+data/*.db-shm
 data/*.parquet
 logs/
 *.log

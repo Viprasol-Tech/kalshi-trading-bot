@@ -31,8 +31,12 @@ class RiskLimits:
 
     def __post_init__(self) -> None:
         if (
-            min(self.max_contracts_per_order, self.max_position_per_market,
-                self.max_order_notional_cents) <= 0
+            min(
+                self.max_contracts_per_order,
+                self.max_position_per_market,
+                self.max_order_notional_cents,
+            )
+            <= 0
             or not 0 < self.kelly_fraction <= 1
         ):
             raise ValueError("Invalid risk limits.")
@@ -68,7 +72,10 @@ class RiskManager:
         return cls(RiskLimits.from_settings(risk))
 
     def check(
-        self, order: OrderRequest, current_position: int, *,
+        self,
+        order: OrderRequest,
+        current_position: int,
+        *,
         available_cash: int | None = None,
         pending_orders: Sequence[OrderRequest] = (),
         estimated_fees: int | None = None,
@@ -94,7 +101,8 @@ class RiskManager:
         notional = price * order.count + fees
         if notional > self.limits.max_order_notional_cents:
             return RiskDecision(False, "order notional exceeds max_order_notional_cents")
-        if notional > available_cash:
+        required_cash = notional if order.action.value == "buy" else fees
+        if required_cash > available_cash:
             return RiskDecision(False, "insufficient available cash including fees")
 
         return RiskDecision(True)
@@ -116,8 +124,10 @@ class RiskManager:
         """
         p = price_cents / 100.0
         if (
-            not 0.0 < p < 1.0 or not math.isfinite(edge_prob)
-            or not 0 <= edge_prob <= 1 or bankroll_cents <= 0
+            not 0.0 < p < 1.0
+            or not math.isfinite(edge_prob)
+            or not 0 <= edge_prob <= 1
+            or bankroll_cents <= 0
         ):
             return 0
         full_kelly = (edge_prob - p) / (1.0 - p)

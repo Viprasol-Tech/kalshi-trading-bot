@@ -1,8 +1,8 @@
 """A snapshot-replay backtester for prediction-market strategies.
 
-Replays a sequence of :class:`~kalshi_bot.exchange.models.Market` snapshots
-through a strategy, simulating immediate fills at the quoted price, tracks an
-equity curve and a per-trade PnL log, and produces a rich
+Replays timestamped executable quotes through a strategy and the conservative
+paper broker. Only later quotes can fill funded orders. Tracks an equity curve
+and a per-trade PnL log, and produces a rich
 :class:`BacktestReport` with standard quant metrics (Sharpe, max drawdown,
 win rate). This is intentionally simple — a starting point, not a
 high-fidelity matching engine.
@@ -15,7 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from kalshi_bot.backtesting import metrics
-from kalshi_bot.exchange.models import Action, Fill, Market, Position
+from kalshi_bot.exchange.models import Action, Fill, Market, Side
+from kalshi_bot.paper import FEE_PER_CONTRACT, PaperBroker, PaperQuote
 from kalshi_bot.risk.manager import RiskManager
 from kalshi_bot.strategies.base import Strategy, StrategyContext
 
@@ -33,6 +34,7 @@ class BacktestReport:
     final_equity_cents: int = 0
     final_position: int = 0
     fees_paid_cents: int = 0
+    closed_pnl_cents: int = 0
     equity_curve: list[int] = field(default_factory=list)
     fills: list[Fill] = field(default_factory=list)
     trade_pnls: list[float] = field(default_factory=list)
@@ -49,34 +51,40 @@ class BacktestReport:
 
     @property
     def realized_pnl_cents(self) -> int:
-        """Alias for :attr:`pnl_cents` (kept for 0.1.x compatibility)."""
-        return self.pnl_cents
+        """FIFO realized PnL after entry and exit fees, excluding open inventory."""
+        return self.closed_pnl_cents
 
     @property
     def realized_pnl_dollars(self) -> float:
-        """Alias for :attr:`pnl_dollars` (kept for 0.1.x compatibility)."""
-        return self.pnl_dollars
+        """Realized PnL converted to dollars."""
+        return self.realized_pnl_cents / 100.0
 
     @property
     def total_return(self) -> float:
         """Fractional return over the run."""
-        return metrics.total_return([float(x) for x in self.equity_curve])
+        return self.pnl_cents / self.starting_balance_cents if self.starting_balance_cents else 0.0
 
     @property
     def sharpe(self) -> float:
         """Annualised Sharpe ratio of the equity curve."""
-        rets = metrics.returns_from_equity([float(x) for x in self.equity_curve])
+        rets = metrics.returns_from_equity(
+            [float(self.starting_balance_cents), *map(float, self.equity_curve)]
+        )
         return metrics.sharpe_ratio(rets)
 
     @property
     def max_drawdown(self) -> float:
         """Worst peak-to-trough fractional decline (non-negative)."""
-        return metrics.max_drawdown([float(x) for x in self.equity_curve])
+        return metrics.max_drawdown(
+            [float(self.starting_balance_cents), *map(float, self.equity_curve)]
+        )
 
     @property
     def volatility(self) -> float:
         """Annualised return volatility."""
-        rets = metrics.returns_from_equity([float(x) for x in self.equity_curve])
+        rets = metrics.returns_from_equity(
+            [float(self.starting_balance_cents), *map(float, self.equity_curve)]
+        )
         return metrics.volatility(rets)
 
     @property
@@ -104,83 +112,90 @@ class BacktestReport:
 
 
 class Backtester:
-    """Replay market snapshots through a strategy with naive fills.
+    """Replay through the same conservative paper broker used by the engine.
 
-    Each emitted order is optionally screened by a :class:`RiskManager` and, if
-    approved, filled instantly at its limit price. Position cost basis is tracked
-    so that closing (or reducing) trades realise a per-trade PnL, which feeds the
-    win-rate and profit-factor metrics.
+    Bare last-price snapshots have no executable liquidity and cannot fill.
+    Each run is an isolated in-memory ledger, never the persistent paper account.
     """
 
     def __init__(
         self,
-        starting_balance_cents: int = 100_000,
+        starting_balance_cents: int = 5000,
         risk: RiskManager | None = None,
-        fee_cents_per_contract: int = 0,
+        fee_cents_per_contract: int = FEE_PER_CONTRACT,
     ) -> None:
         self.starting_balance_cents = starting_balance_cents
         self.risk = risk
-        self.fee_cents_per_contract = max(0, fee_cents_per_contract)
+        if fee_cents_per_contract != FEE_PER_CONTRACT:
+            raise ValueError("Simulation uses a fixed conservative two-cent fee per contract.")
+        self.fee_cents_per_contract = fee_cents_per_contract
 
     def run(self, strategy: Strategy, snapshots: list[Market]) -> BacktestReport:
         """Run ``strategy`` over ``snapshots`` and return a full report."""
         report = BacktestReport(starting_balance_cents=self.starting_balance_cents)
-        position = 0
-        avg_price = 0.0  # VWAP of current inventory (YES-price cents)
-        balance = float(self.starting_balance_cents)
-
-        strategy.on_start()
-        for market in snapshots:
-            ctx = StrategyContext(
-                market=market,
-                positions={
-                    market.ticker: Position(
-                        ticker=market.ticker, position=position, avg_price=avg_price
-                    )
-                },
-                balance=int(balance),
-            )
-            for order in strategy.on_market_data(ctx):
-                if self.risk is not None and not self.risk.check(order, position).approved:
+        broker = PaperBroker(":memory:", starting_cash=self.starting_balance_cents, risk=self.risk)
+        marks: dict[str, PaperQuote] = {}
+        try:
+            strategy.on_start()
+            for market in snapshots:
+                if market.observed_at is None or not market.quote_id:
+                    broker.record_event("quote_skipped", {"reason": "missing quote metadata"})
+                    report.equity_curve.append(broker.equity(marks))
                     continue
-                # Express every fill in YES terms: a NO buy is economically a
-                # YES sell at (100 - no_price), which keeps PnL accounting unified.
-                if order.side.value == "no":
-                    yes_equiv_price = 100 - (order.no_price or order.yes_price or 0)
-                    is_buy = order.action is Action.SELL
-                else:
-                    yes_equiv_price = order.yes_price or order.no_price or 0
-                    is_buy = order.action is Action.BUY
-
-                qty = order.count if is_buy else -order.count
-                fee = self.fee_cents_per_contract * order.count
-                balance -= qty * yes_equiv_price + fee
-                report.fees_paid_cents += fee
-
-                position, avg_price, realized = _apply_fill(
-                    position, avg_price, qty, yes_equiv_price
+                quote = PaperQuote(**market.model_dump(include=set(PaperQuote.model_fields)))
+                if not broker.quote_is_usable(quote, now=market.observed_at):
+                    broker.process_quote(quote, now=market.observed_at)
+                    report.equity_curve.append(broker.equity(marks))
+                    continue
+                broker.process_quote(quote, now=market.observed_at)
+                marks[market.ticker] = quote
+                ctx = StrategyContext(
+                    market, broker.positions(), broker.account()["available_cash"]
                 )
-                if realized is not None:
-                    report.trade_pnls.append(realized - fee)
-
+                for order in strategy.on_market_data(ctx):
+                    broker.record_event("signal", {"order": order.to_payload()})
+                    broker.submit(order, now=market.observed_at)
+                report.equity_curve.append(broker.equity(marks))
+            report.final_equity_cents = (
+                report.equity_curve[-1] if report.equity_curve else broker.account()["cash"]
+            )
+            report.final_position = sum(p.position for p in broker.positions().values())
+            report.fees_paid_cents = broker.account()["fees"]
+            report.closed_pnl_cents = broker.account()["realized_pnl"]
+            for row in broker.rows("fills"):
                 report.fills.append(
                     Fill(
-                        ticker=order.ticker,
-                        side=order.side,
-                        action=order.action,
-                        count=order.count,
-                        price=order.yes_price or order.no_price or 1,
+                        ticker=row["ticker"],
+                        action=Action(row["action"]),
+                        side=Side(row["side"]),
+                        count=row["quantity"],
+                        price=row["price"],
+                        order_id=row["order_id"],
                     )
                 )
-                report.trades += 1
-
-            mark = market.last_price or market.yes_bid or 0
-            report.equity_curve.append(int(balance + position * mark))
-        strategy.on_stop()
-
-        report.final_equity_cents = report.equity_curve[-1] if report.equity_curve else int(balance)
-        report.final_position = position
-        return report
+            report.trades = len(report.fills)
+            # FIFO closed PnL includes both entry and exit fees.
+            cost_lots: dict[tuple[str, str], list[list[int]]] = {}
+            for row in broker.rows("fills"):
+                key = row["ticker"], row["side"]
+                if row["action"] == "buy":
+                    cost_lots.setdefault(key, []).append(
+                        [row["quantity"], row["price"] + FEE_PER_CONTRACT]
+                    )
+                else:
+                    remaining, cost = row["quantity"], 0
+                    for lot in cost_lots[key]:
+                        take = min(remaining, lot[0])
+                        cost += take * lot[1]
+                        remaining -= take
+                        lot[0] -= take
+                    report.trade_pnls.append(row["quantity"] * row["price"] - row["fee"] - cost)
+            return report
+        finally:
+            try:
+                strategy.on_stop()
+            finally:
+                broker.close()
 
 
 # Backwards-compatible alias: the report grew metrics but kept the old name's role.
