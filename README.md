@@ -4,12 +4,14 @@
 
 <h1 align="center">Kalshi Trading Bot</h1>
 
-> **Simulation-only safety branch (Phases 1 and 2).** Live orders, production
+> **Simulation-only safety branch (Phases 1–3).** Live orders, production
 > configuration and exchange credentials are blocked, regardless of older
 > examples below. The paper account starts at $50 with a $1 maximum entry loss
 > including estimated fees. See [the simulation guide](docs/simulation-only.md)
-> for execution assumptions and limitations. BTC discovery/estimation and
-> historical BTC validation have **not** been implemented.
+> for execution assumptions and limitations. The experimental BTC 15-minute
+> runner discovers demo markets but **blocks entries without matching observed
+> out-of-time calibration**. No validated calibration artifact or historical
+> BTC performance claim is included. See [Phase 3](docs/phase-3-btc.md).
 
 <p align="center">
   <strong>Open-source algorithmic trading framework for <a href="https://kalshi.com">Kalshi</a> prediction markets.</strong><br>
@@ -26,7 +28,7 @@
   <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue?style=flat-square&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/typed-mypy%20strict-2a6db2?style=flat-square&logo=python&logoColor=white" alt="mypy strict">
   <img src="https://img.shields.io/badge/code%20style-ruff-000000?style=flat-square&logo=ruff&logoColor=white" alt="Ruff">
-  <img src="https://img.shields.io/badge/tests-56%20passing-brightgreen?style=flat-square&logo=pytest&logoColor=white" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-163%20passing-brightgreen?style=flat-square&logo=pytest&logoColor=white" alt="Tests">
   <img src="https://img.shields.io/badge/version-0.2.0-purple?style=flat-square" alt="Version">
   <a href="https://t.me/viprasol_help"><img src="https://img.shields.io/badge/Telegram-support-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram"></a>
   <a href="https://github.com/Viprasol-Tech/kalshi-trading-bot/stargazers"><img src="https://img.shields.io/github/stars/Viprasol-Tech/kalshi-trading-bot?style=flat-square&logo=github" alt="Stars"></a>
@@ -45,9 +47,9 @@
 
 ## ✨ Features
 
-- 🔐 **Kalshi-native auth** — correct RSA-PSS request signing (API key ID + RSA private key), the current Kalshi standard.
-- 🌐 **Async REST client** — market data, order book, balance, positions, order create/cancel.
-- 📡 **WebSocket streaming** — real-time `orderbook_delta`, `ticker`, `trade`, `fill` channels.
+- 🔐 **Credentials blocked** — unsigned public demo data only; no production keys.
+- 🌐 **Async REST client** — demo market, series and order book reads; mutations blocked.
+- 📡 **Authenticated WebSockets disabled** — the paper runner uses bounded public polling.
 - 🧠 **Five bundled strategies** — `market_maker`, `momentum`, `mean_reversion`, `arbitrage`, and Kelly-sized `fair_value`.
 - 🧩 **Pluggable strategy API** — subclass one `Strategy` base class and ship your own in minutes.
 - 🛡️ **Risk manager** — pre-trade limits + fractional-Kelly position sizing, configurable from the environment.
@@ -56,7 +58,8 @@
 - 🧱 **Typed models** — `Market`, `OrderBook`, `Fill`, `Position`, `Portfolio` (pydantic v2 throughout).
 - 🏜️ **Simulation-only** — real orders and `--live` are disabled on this branch.
 - 🖥️ **Rich Typer CLI** — `markets`, `balance`, `run`, `backtest`, `strategies`, `version`.
-- 🌎 **Demo + production** environments with fully configurable base URLs.
+- ₿ **Experimental BTC 15-minute paper runner** — strict rule verification and calibrated net-edge gates.
+- 🌎 **Demo only** — production environments and non-demo exchange base URLs are rejected.
 - ⚙️ **Modern tooling** — `pyproject.toml`, ruff, mypy (strict), pytest, Docker, GitHub Actions, mkdocs.
 
 ## 🚀 Quickstart

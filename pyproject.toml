@@ -43,6 +43,7 @@ dependencies = [
   "pandas>=2.2",
   "numpy>=1.26",
   "python-dotenv>=1.0",
+  "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

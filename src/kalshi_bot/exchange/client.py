@@ -106,6 +106,7 @@ class KalshiClient:
             or not (
                 parsed.path == API_PREFIX + "/markets"
                 or parsed.path.startswith(API_PREFIX + "/markets/")
+                or parsed.path.startswith(API_PREFIX + "/series/")
             )
             or any(
                 k.lower().startswith(("authorization", "kalshi-access")) for k in request.headers
@@ -116,7 +117,9 @@ class KalshiClient:
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         require_simulation()
         require_public_demo_url(self._base_url)
-        if method.upper() != "GET" or not path.startswith("/markets"):
+        if method.upper() != "GET" or not (
+            path == "/markets" or path.startswith(("/markets/", "/series/"))
+        ):
             raise SimulationOnlyError("Simulation-only: exchange portfolio and writes are blocked.")
         # httpx joins relative paths to base_url; do not append the API prefix twice.
         suffix = path if self._base_url.endswith(API_PREFIX) else API_PREFIX + path

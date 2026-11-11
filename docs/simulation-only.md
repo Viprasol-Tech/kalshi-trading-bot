@@ -1,10 +1,10 @@
-# Simulation-only branch: Phases 1 and 2
+# Simulation-only branch: Phases 1–3
 
 This is a patch to the existing Kalshi Trading Bot, **not a new application**.
 The exchange is never used for order submission, cancellation, balances, or
 positions. `--live`, production configuration, and configured exchange credentials
-are rejected. Public unsigned **demo** market GET requests are the only permitted
-exchange network operations. The default remains `KALSHI_ENVIRONMENT=demo` and
+are rejected. Public unsigned **demo** market/series GET requests are the only
+permitted Kalshi network operations. The default remains `KALSHI_ENVIRONMENT=demo` and
 `KALSHI_DRY_RUN=true`; overriding them fails closed rather than enabling trading.
 No credentials are required or loaded. Authenticated WebSockets are disabled.
 
@@ -39,7 +39,10 @@ Each purchase is limited to **100 cents worst-case loss including estimated
 entry fees**. Naked shorts are forbidden. Sales require owned, unreserved
 contracts and must cover their own exit fees. This is a per-entry-order loss cap,
 not a portfolio-wide $1 loss cap. Multiple entries can lose more than $1 in total.
-Do not split a future BTC strategy's logical trade across orders to evade its cap.
+The BTC runner permits only one entry attempt per market, across restarts,
+including rejected/cancelled attempts. It cannot split or re-enter a logical
+trade to evade the cap. It buys funded contracts only and holds fills to a
+confirmed binary settlement; it does not assume an exit sale.
 
 ### Explicit conservative execution assumptions
 
@@ -92,16 +95,20 @@ open inventory. Win rate is over closing fills, not a sample of settled BTC mark
 
 The polling engine uses the persistent ledger, not an exchange portfolio.
 Public market snapshots without timestamps/depth cannot produce paper entries;
-Phase 3 must supply a verified market-data adapter. Pending paper orders for the
-engine's market are cancelled on stop or exceptions. There is no enabled BTC strategy.
+the Phase 3 adapter supplies validated fixed-point order books and bounded
+observation timestamps. Pending paper orders for the engine's market are
+cancelled on stop or exceptions. See [BTC paper strategy](phase-3-btc.md)
+for its separate command and stricter gates.
 
-## Deferred until after the Phase 1/2 report
+## Phase 3 status and deferred validation
 
-Phase 3: verified BTC 15-minute market discovery/settlement rules, fresh BTC
-reference prices, executable Kalshi quotes, a testable calibrated estimator,
-and an eight-percentage-point estimated net-edge entry filter.
+Phase 3 adds verified BTC 15-minute discovery, public Coinbase proxy prices,
+executable demo order books, an experimental testable estimator and a mandatory
+empirical calibration gate before the eight-point net-edge filter. No validated
+artifact is bundled: the default is observation/logging with zero entries.
+Coinbase prices are never represented as the CF settlement index.
 
 Phase 4: historical BTC replay, fee-schedule verification and empirical fill
 assumptions, calibration evaluation and a sample-size-aware paper performance
-report. No historical data was supplied or fetched in Phases 1/2; no historical
+report. No historical data was supplied or fetched in Phases 1–3; no historical
 BTC backtest or profitability claim has been made.

@@ -8,6 +8,7 @@ Part of the Kalshi Trading Bot by Viprasol Tech Private Limited.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -126,6 +127,39 @@ def paper_status() -> None:
         console.print(f"settlements: {len(broker.rows('settlements'))}")
     finally:
         broker.close()
+
+
+@app.command("btc-paper")
+def btc_paper(
+    ticks: int = typer.Option(1, min=1, max=1800, help="Bounded paper polling cycles."),
+    interval: float = typer.Option(2.0, min=1, max=5, help="Seconds between observations."),
+    calibration: Path | None = typer.Option(None, help="Observed out-of-time calibration JSON."),
+) -> None:
+    """Discover verified demo BTC 15-minute markets; never submit real orders."""
+    from kalshi_bot.btc_data import CoinbaseReference, DemoBTCSource
+    from kalshi_bot.btc_model import CalibrationArtifact
+    from kalshi_bot.btc_strategy import BTCPaperRunner
+
+    artifact = None
+    if calibration is not None:
+        if calibration.stat().st_size > 5_000_000:
+            raise typer.BadParameter("Calibration artifact exceeds 5 MB.")
+        artifact = CalibrationArtifact.model_validate_json(calibration.read_text())
+
+    async def _run() -> None:
+        settings = load_settings()
+        broker = PaperBroker(risk=RiskManager.from_settings(settings.risk))
+        reference = CoinbaseReference()
+        try:
+            async with KalshiClient.from_settings(settings) as client:
+                runner = BTCPaperRunner(broker, DemoBTCSource(client), reference, artifact)
+                report = await runner.run(ticks=ticks, interval=interval)
+                console.print_json(data=report)
+        finally:
+            await reference.close()
+            broker.close()
+
+    asyncio.run(_run())
 
 
 @app.command()
