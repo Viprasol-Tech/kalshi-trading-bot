@@ -36,7 +36,7 @@ from kalshi_bot.btc_rules import (
     verify_series,
 )
 from kalshi_bot.exchange.client import API_PREFIX, KalshiClient
-from kalshi_bot.safety import require_simulation
+from kalshi_bot.safety import require_collection_release, require_simulation
 
 
 def ledger_state(path: Path) -> dict[str, Any]:
@@ -108,26 +108,34 @@ class Observer:
         output.parent.mkdir(parents=True, exist_ok=True)
         self.output = output
         self.db = sqlite3.connect(output)
-        self.db.executescript("""
+        self.initialize_tables(self.db)
+        self.initialize_state()
+
+    @staticmethod
+    def initialize_tables(db: sqlite3.Connection) -> None:
+        """Shared raw evidence schema; also used in the campaign's single DB."""
+        db.executescript("""
             PRAGMA journal_mode=WAL;
-            CREATE TABLE run (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-            CREATE TABLE requests (
+            CREATE TABLE IF NOT EXISTS run (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS requests (
                 id INTEGER PRIMARY KEY, started REAL, received REAL, provider TEXT,
                 path TEXT, latency_ms REAL, status INTEGER, server_age_s REAL,
                 fresh INTEGER, error TEXT, body TEXT
             );
-            CREATE TABLE discovery (
+            CREATE TABLE IF NOT EXISTS discovery (
                 at REAL, success INTEGER, active INTEGER, rejected TEXT, error TEXT
             );
-            CREATE TABLE markets (
+            CREATE TABLE IF NOT EXISTS markets (
                 ticker TEXT PRIMARY KEY, first_seen REAL, metadata TEXT,
                 outcome INTEGER, confirmed_at REAL, final_metadata TEXT
             );
-            CREATE TABLE observations (
+            CREATE TABLE IF NOT EXISTS observations (
                 id INTEGER PRIMARY KEY, at REAL, ticker TEXT, valid INTEGER,
                 missing INTEGER, stale INTEGER, payload TEXT
             );
         """)
+
+    def initialize_state(self) -> None:
         self.markets: dict[str, VerifiedMarket] = {}
         self.series: dict[str, Any] = {}
         self.active: list[VerifiedMarket] = []
@@ -151,6 +159,7 @@ class Observer:
             "error": None,
             "server_age_s": None,
         }
+        cancelled = False
         try:
             response = await client.get(path, params=params, headers={"Cache-Control": "no-cache"})
             result["status"] = response.status_code
@@ -162,6 +171,9 @@ class Observer:
             result["server_age_s"] = (
                 time.time() - parsedate_to_datetime(response.headers["Date"]).timestamp()
             )
+        except asyncio.CancelledError:
+            result["error"] = "CancelledError"
+            cancelled = True
         except (
             httpx.HTTPError,
             ValueError,
@@ -196,6 +208,8 @@ class Observer:
             ),
         )
         self.db.commit()
+        if cancelled:
+            raise asyncio.CancelledError
         return result
 
     async def discover(self, client: httpx.AsyncClient) -> None:
@@ -555,6 +569,7 @@ async def run_capture(
     output: Path,
     ledger: Path,
 ) -> dict[str, Any]:
+    require_collection_release()
     require_simulation()
     if not 0 < seconds <= 1800 or not 1 <= interval <= 5:
         raise ValueError("Only bounded <=30-minute observations at 1-5 second intervals.")

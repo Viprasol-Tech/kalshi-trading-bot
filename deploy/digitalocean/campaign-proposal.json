@@ -1,6 +1,9 @@
 {
-  "version": 2,
-  "status": "OFFLINE_SUPERVISOR_IMPLEMENTED_NOT_RUNNABLE",
+  "version": 3,
+  "status": "DEMO_COLLECTOR_INTEGRATED_LAUNCH_SEALED",
+  "collector_adapter": "kalshi_bot.btc_demo_bridge.DemoBridge",
+  "collection_gate": "non-configurable sealed release gate",
+  "orderbook_depth_limit": 10,
   "supervisor_module": "kalshi_bot.btc_supervisor",
   "supervisor_database": "/var/lib/kalshi/campaign.db",
   "supervisor_offline_only": true,
@@ -37,12 +40,13 @@
   "future_maximum_risk_cents": 100,
   "future_minimum_net_edge": 0.08,
   "proposed_daily_gross_loss_cap_cents": 200,
+  "daily_gross_loss_cap_cents": 200,
   "maximum_unresolved_positions": 1,
   "blockers": [
     "Separate hosting, backup, demo-feed and campaign approvals",
     "Real host load, reboot, clean-instance restore, clock and external health tests",
     "Verified demo credential provenance, timestamp availability and stream completeness",
-    "Wire the offline supervisor to an approved evidence-producing collector and test on the approved host",
+    "Review the integrated demo collector release and test real feed/host/provenance before activation",
     "Freeze original UTC boundaries and hashes before any new observations"
   ]
 }

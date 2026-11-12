@@ -294,6 +294,8 @@ async def test_six_hour_loop_boundary_offline_no_broker(
     account: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # This historical runner test remains purely synthetic; runtime gate stays sealed.
+    monkeypatch.setattr(btc_collect, "require_collection_release", lambda: None)
     clock = [NOW]
     from kalshi_bot import btc_observe
 

@@ -15,7 +15,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -25,14 +25,15 @@ from kalshi_bot.btc_model import (
     calibration_check,
     estimate,
 )
+from kalshi_bot.btc_observe import book_fields
 from kalshi_bot.btc_rules import verify_market
 from kalshi_bot.btc_validate import executable_edges
 from kalshi_bot.exchange.models import Action, OrderRequest, Side
 from kalshi_bot.paper import PaperBroker
 from kalshi_bot.safety import require_entry_release, require_simulation
 
-# Fixed policy, not environment overrides. $2 is a proposed conservative daily
-# loss budget, distinct from the user's fixed $1 per-trade risk limit.
+# Fixed policy, not environment overrides: $2 daily gross loss including
+# reserved risk, distinct from the $1 per-trade worst-case loss cap.
 MAX_RISK_CENTS = 100
 DAILY_LOSS_CENTS = 200
 MIN_EDGE = Decimal("0.08")
@@ -59,6 +60,52 @@ class Opportunity:
     def client_id(self) -> str:
         # One logical attempt per market, not per side/tick/restart.
         return "btc-auto:" + hashlib.sha256(self.ticker.encode()).hexdigest()[:32]
+
+
+@dataclass(frozen=True)
+class ExitPlan:
+    ticker: str
+    side: str
+    observed_at: float
+    limit_cents: int | None
+    rules_sha256: str
+    blockers: tuple[str, ...]
+
+    @property
+    def client_id(self) -> str:
+        return "btc-exit:" + hashlib.sha256(self.ticker.encode()).hexdigest()[:32]
+
+
+def exit_plan(
+    payload: dict[str, Any], series: dict[str, Any], side: str, *, now: float
+) -> ExitPlan:
+    """Staged policy: attempt ONE pre-close sale during the final 60 seconds.
+
+    No price guess, stop-loss fill or compulsory liquidation. If fresh executable
+    liquidity is absent, retain risk and await authoritative finalized settlement.
+    This pure plan neither reads inventory nor places an order.
+    """
+    ticker, rules, limit, blockers = "unverified", "", None, []
+    try:
+        require_simulation()
+        market = verify_market(payload["market_metadata"], series, now=now)
+        ticker, rules = market.ticker, market.rules_sha256
+        if side not in ("yes", "no") or not 0 < market.closes_at - now <= 60:
+            raise ValueError("No pre-close exit due.")
+        strict = executable_edges({**payload, "yes_probability": 0.5}, now)
+        if not strict["strict_execution_eligible"]:
+            raise ValueError(str(strict["strict_edge_reason"]))
+        book = book_fields({"orderbook_fp": payload["raw_book"]})
+        bid = book[side + "_bid"]
+        if bid is None or book[side + "_bid_depth"] < PARTICIPATION_DIVISOR:
+            raise ValueError("Insufficient executable exit bid/depth.")
+        limit = int((Decimal(str(bid)) * 100).to_integral_value(rounding=ROUND_FLOOR)) - 2
+        if not FEE_RESERVE_CENTS <= limit <= 99:
+            raise ValueError("Exit cannot increase loss beyond the fully prepaid entry.")
+    except (ValueError, KeyError, TypeError, ArithmeticError) as exc:
+        blockers.append(str(exc))
+        limit = None
+    return ExitPlan(ticker, side, now, limit, rules, tuple(blockers))
 
 
 def opportunity(
@@ -191,6 +238,10 @@ class ExecutionJournal:
                 ticker TEXT PRIMARY KEY REFERENCES auto_intents(ticker),
                 confirmed_at REAL NOT NULL, pnl_cents INTEGER NOT NULL, evidence TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS auto_exits(
+                ticker TEXT PRIMARY KEY,client_id TEXT UNIQUE NOT NULL,
+                status TEXT NOT NULL,payload TEXT NOT NULL
+            );
         """)
         self.db.execute("PRAGMA foreign_keys=ON")
 
@@ -295,6 +346,8 @@ class ExecutionJournal:
         """
         self.event("dispatch_blocked", {"ticker": decision.ticker, "release": False}, now)
         require_entry_release()
+        if broker.slippage_cents != SLIPPAGE_CENTS:
+            raise ValueError("Automatic paper trial requires immutable two-cent slippage.")
         # Deliberately unreachable until a separately reviewed release changes the gate.
         if broker.pending() or broker.db.execute("SELECT 1 FROM lots WHERE quantity>0").fetchone():
             raise ValueError("Existing account exposure; reconciliation required before dispatch.")
@@ -319,4 +372,72 @@ class ExecutionJournal:
             return oid
         except BaseException:
             self.kill("uncertain submission; manual reconciliation required", now)
+            raise
+
+    def dispatch_exit(self, plan: ExitPlan, broker: PaperBroker, *, now: float) -> str | None:
+        """Sealed sell adapter: one durable intent; uncertainty never triggers retry."""
+        require_entry_release()
+        if (
+            plan.blockers
+            or plan.side not in ("yes", "no")
+            or plan.limit_cents is None
+            or not 2 <= plan.limit_cents <= 99
+            or not 0 <= now - plan.observed_at <= 1
+            or broker.slippage_cents != SLIPPAGE_CENTS
+            or broker.holdings(plan.ticker, Side(plan.side)) != 1
+            or broker.pending()
+        ):
+            raise ValueError("Invalid, stale or unreconciled exit.")
+        with self.transaction():
+            intent = self.db.execute(
+                "SELECT * FROM auto_intents WHERE ticker=?", (plan.ticker,)
+            ).fetchone()
+            has_snapshot = self.db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='auto_paper_snapshots'"
+            ).fetchone()
+            snapshot = (
+                self.db.execute(
+                    "SELECT observed_at FROM auto_paper_snapshots WHERE ticker=?", (plan.ticker,)
+                ).fetchone()
+                if has_snapshot
+                else None
+            )
+            if (
+                intent is None
+                or intent["status"] != "submitted"
+                or snapshot is None
+                or not 0 <= now - snapshot[0] <= 5
+                or intent["side"] != plan.side
+                or json.loads(intent["payload"])["rules_sha256"] != plan.rules_sha256
+                or self.db.execute("SELECT killed FROM auto_control").fetchone()[0]
+                or self.db.execute(
+                    "SELECT 1 FROM auto_exits WHERE ticker=?", (plan.ticker,)
+                ).fetchone()
+            ):
+                raise ValueError("Killed, duplicate or unknown exit intent.")
+            self.db.execute(
+                "INSERT INTO auto_exits VALUES(?,?,'prepared',?)",
+                (plan.ticker, plan.client_id, json.dumps(asdict(plan))),
+            )
+        try:
+            oid = broker.submit(
+                OrderRequest(
+                    ticker=plan.ticker,
+                    side=Side(plan.side),
+                    action=Action.SELL,
+                    count=1,
+                    client_order_id=plan.client_id,
+                    **{plan.side + "_price": plan.limit_cents},
+                ),
+                now=now,
+            )
+            with self.transaction():
+                self.db.execute(
+                    "UPDATE auto_exits SET status=? WHERE ticker=?",
+                    ("submitted" if oid else "rejected_pending_review", plan.ticker),
+                )
+                self.event("exit_ack", {"ticker": plan.ticker, "order_id": oid}, now)
+            return oid
+        except BaseException:
+            self.kill("uncertain exit; inventory/risk retained; no automatic retry", now)
             raise

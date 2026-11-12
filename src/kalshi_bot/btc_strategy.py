@@ -30,7 +30,7 @@ from kalshi_bot.paper import (
     PaperBroker,
     PaperQuote,
 )
-from kalshi_bot.safety import require_entry_release, require_simulation
+from kalshi_bot.safety import require_collection_release, require_entry_release, require_simulation
 
 
 @dataclass(frozen=True)
@@ -243,6 +243,7 @@ class BTCPaperRunner:
             self.broker.cancel_market(row["ticker"])
 
     async def step(self) -> None:
+        require_collection_release()
         require_simulation()
         now = self.clock()
         markets, skipped = await self.source.discover()
@@ -380,6 +381,7 @@ class BTCPaperRunner:
             )
 
     async def run(self, ticks: int = 1, interval: float = 2) -> dict[str, Any]:
+        require_collection_release()
         if not 1 <= ticks <= 1800 or not math.isfinite(interval) or not 1 <= interval <= 5:
             raise ValueError("Use 1-1800 ticks with a 1-5 second interval.")
         try:

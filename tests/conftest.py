@@ -13,6 +13,7 @@ def offline_execution_fixture(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setattr("kalshi_bot.paper.PaperBroker._require_entries", lambda self: None)
     monkeypatch.setattr("kalshi_bot.btc_strategy.require_entry_release", lambda: None)
+    monkeypatch.setattr("kalshi_bot.btc_strategy.require_collection_release", lambda: None)
 
 
 @pytest.fixture(autouse=True)

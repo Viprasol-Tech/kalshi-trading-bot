@@ -267,6 +267,12 @@ no network driver or launch service, and `run_collection()` always refuses.
 Wiring and host acceptance remain separate work/approval gates; this addition
 does not turn the idle guard into a collector.
 
+Update: `btc_demo_bridge.py` now integrates that coordinator with existing demo
+discovery/cycle/settlement algorithms in one database, still behind an unconditional
+collection release gate. See `docs/demo-collector-readiness.md` for current offline
+results and the exact approval path. No service here starts it; all paid-host,
+feed, campaign and paper-trial approvals remain false.
+
 ## Go/no-go
 
 Ready for **offline code review and local infrastructure drills only**. Separate

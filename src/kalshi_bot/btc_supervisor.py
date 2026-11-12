@@ -59,7 +59,14 @@ def implementation_sha256() -> str:
     root = Path(__file__).parent
     files = (
         "btc_supervisor.py",
+        "btc_demo_bridge.py",
         "btc_campaign.py",
+        "btc_campaign_validate.py",
+        "btc_automation.py",
+        "btc_strategy.py",
+        "btc_reconcile.py",
+        "paper.py",
+        "btc_data.py",
         "btc_collect.py",
         "btc_observe.py",
         "btc_model.py",
@@ -451,6 +458,24 @@ class Supervisor:
             and execution["strict_execution_eligible"]
             and all(success for _, success in frame.requests)
         )
+        if "collector_request_receipt_ids" in frame.payload:
+            ids = frame.payload["collector_request_receipt_ids"]
+            if (
+                not isinstance(ids, list)
+                or not 1 <= len(ids) <= 100
+                or any(type(i) is not int or i < 1 for i in ids)
+                or len(set(ids)) != len(ids)
+            ):
+                healthy = False
+            else:
+                placeholders = ",".join("?" for _ in ids)
+                rows = self.db.execute(
+                    "SELECT COUNT(*) FROM requests r JOIN bridge_requests b ON r.id=b.request_id "
+                    f"WHERE r.id IN ({placeholders}) AND r.fresh=1 AND r.error IS NULL "
+                    "AND r.received BETWEEN ? AND ?",
+                    (*ids, frame.at - 5, now),
+                ).fetchone()[0]
+                healthy = healthy and rows == len(ids)
         try:
             kind = classify_book(book_fields({"orderbook_fp": frame.payload["raw_book"]}))
         except (ValueError, KeyError, TypeError):
@@ -683,6 +708,7 @@ class Supervisor:
                 100 * max(0, expected - rows["complete"]) / expected if expected else None
             ),
             "stale_observations": rows["stale"],
+            "api_errors": rows["api_errors"],
             "discovery": {
                 **counters,
                 "success_rate": (
@@ -715,7 +741,7 @@ class Supervisor:
             "data_supports_model_validation": False,
             "limitations": [
                 "Offline inputs and host facts are not authenticated provider observations.",
-                "No network driver, daemon/service activation or collection authorization.",
+                "Demo collector bridge is sealed; no daemon/service or collection authorization.",
                 "No model fitting, test-score display, calibration promotion or orders.",
                 "Distinct contracts are not proof of statistical independence.",
             ],

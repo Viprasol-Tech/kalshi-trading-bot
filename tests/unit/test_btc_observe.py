@@ -86,6 +86,8 @@ async def test_observer_does_not_mutate_account_or_construct_orders(
                 },
             ),
         )
+        # Explicit test-only launch permission; network remains mocked/forbidden.
+        monkeypatch.setattr(btc_observe, "require_collection_release", lambda: None)
         report = await btc_observe.run_capture(0.2, 1, tmp_path / "observations.db", ledger)
     assert report["status"] == "completed"
     assert report["valid_observations"] == 1

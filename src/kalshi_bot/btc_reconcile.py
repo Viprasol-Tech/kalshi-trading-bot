@@ -113,6 +113,22 @@ def reconcile_paper(
             order_map = {r["id"]: r for r in orders}
             if intent["client_id"] not in order_map:
                 raise ValueError("Reserved client ID not found.")
+            tracked_exit = journal.db.execute(
+                "SELECT * FROM auto_exits WHERE ticker=?", (ticker,)
+            ).fetchone()
+            if tracked_exit is not None:
+                exit_order = order_map.get(tracked_exit["client_id"])
+                plan = json.loads(tracked_exit["payload"])
+                if exit_order is None:
+                    raise ValueError("Tracked exit acknowledgement missing; risk retained.")
+                exit_request = OrderRequest.model_validate_json(exit_order["payload"])
+                if (
+                    exit_order["action"] != "sell"
+                    or exit_order["side"] != intent["side"]
+                    or exit_request.count != 1
+                    or exit_request.limit_price != plan["limit_cents"]
+                ):
+                    raise ValueError("Tracked exit differs from the reserved sell plan.")
             if any(o["created"] > now for o in orders):
                 raise ValueError("Future order.")
             buy_orders = [o for o in orders if o["action"] == "buy"]
@@ -289,6 +305,16 @@ def reconcile_paper(
                 journal.db.execute(
                     "UPDATE auto_intents SET status='reconciled' WHERE ticker=?", (ticker,)
                 )
+            if tracked_exit is not None:
+                assert exit_order is not None  # validated above; missing ack already failed closed
+                state = (
+                    "reconciled"
+                    if result["reconciled"]
+                    else "cancelled_risk_retained"
+                    if exit_order["status"] == "cancelled"
+                    else "pending_reconciliation"
+                )
+                journal.db.execute("UPDATE auto_exits SET status=? WHERE ticker=?", (state, ticker))
             if old_snapshot is None or old_snapshot["canonical"] != evidence:
                 journal.event(
                     "paper_reconciliation",

@@ -71,8 +71,13 @@ class PaperBroker:
         starting_cash: int = INITIAL_CASH,
         risk: RiskManager | None = None,
         offline_backtest: bool = False,
+        slippage_cents: int = SLIPPAGE_CENTS,
     ) -> None:
         require_simulation()
+        if type(slippage_cents) is not int or slippage_cents not in (1, 2):
+            raise ValueError("Supported paper slippage is one or two cents.")
+        self._slippage_cents = slippage_cents
+        existed = str(path) != ":memory:" and Path(path).exists()
         if offline_backtest and str(path) != ":memory:":
             raise ValueError("Offline backtests must use an isolated in-memory ledger.")
         self._offline_backtest = offline_backtest
@@ -123,6 +128,33 @@ class PaperBroker:
         """)
         try:
             with self._transaction():
+                policy = self.db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='paper_policy'"
+                ).fetchone()
+                if policy:
+                    saved = self.db.execute(
+                        "SELECT slippage FROM paper_policy WHERE id=1"
+                    ).fetchone()
+                    if saved is None or saved[0] != slippage_cents:
+                        raise ValueError("Immutable paper slippage policy mismatch.")
+                elif slippage_cents != SLIPPAGE_CENTS:
+                    if existed:
+                        raise ValueError("Use a new separate ledger for two-cent paper trials.")
+                    if any(
+                        self.db.execute(f"SELECT 1 FROM {t}").fetchone()
+                        for t in (
+                            "orders",
+                            "fills",
+                            "lots",
+                            "settlements",
+                        )
+                    ):
+                        raise ValueError("A new paper trial requires a separate empty ledger.")
+                    self.db.execute(
+                        "CREATE TABLE paper_policy("
+                        "id INTEGER PRIMARY KEY CHECK(id=1),slippage INTEGER)"
+                    )
+                    self.db.execute("INSERT INTO paper_policy VALUES(1,?)", (slippage_cents,))
                 self.db.execute(
                     "INSERT OR IGNORE INTO account(id,initial_cash,cash) VALUES(1,?,?)",
                     (starting_cash, starting_cash),
@@ -135,6 +167,10 @@ class PaperBroker:
 
     def close(self) -> None:
         self.db.close()
+
+    @property
+    def slippage_cents(self) -> int:
+        return self._slippage_cents
 
     @contextmanager
     def _transaction(self) -> Iterator[None]:
@@ -354,7 +390,7 @@ class PaperBroker:
                 bid, ask = getattr(quote, f"{side}_bid"), getattr(quote, f"{side}_ask")
                 price = None
                 if bid is not None and ask is not None:
-                    price = ask + SLIPPAGE_CENTS if buying else bid - SLIPPAGE_CENTS
+                    price = ask + self.slippage_cents if buying else bid - self.slippage_cents
                 qty = 0
                 if (
                     price is not None
@@ -502,7 +538,7 @@ class PaperBroker:
         ):
             quote = quotes.get(row["ticker"])
             bid = getattr(quote, row["side"] + "_bid") if quote is not None else None
-            equity += row["quantity"] * max(0, (bid or 0) - SLIPPAGE_CENTS - FEE_PER_CONTRACT)
+            equity += row["quantity"] * max(0, (bid or 0) - self.slippage_cents - FEE_PER_CONTRACT)
         return equity
 
     def _require_entries(self) -> None:

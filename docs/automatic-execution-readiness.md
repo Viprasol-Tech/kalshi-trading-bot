@@ -1,6 +1,11 @@
 # Automatic BTC execution foundation — disabled release
 
-Latest offline addition: `offline-campaign-supervisor.md` documents the tested
+Latest update: `demo-collector-readiness.md` documents the integrated but sealed
+demo collector, staged automatic sales, and 361-test offline readiness result.
+No new market observations or paper trial exist. Feed/host proofs and explicit
+approvals remain required. The historical foundation below is not a launch claim.
+
+Previous offline addition: `offline-campaign-supervisor.md` documents the tested
 400-market coordinator (334 offline tests overall). Its fixed deadlines,
 cross-window deduplication and quality stops are implemented, but network-driver,
 host/provenance integration and approvals remain blocked. No data collection or

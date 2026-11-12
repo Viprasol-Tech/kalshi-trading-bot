@@ -51,6 +51,23 @@ def public_read_path(path: str) -> bool:
     )
 
 
+def validate_public_request(request: httpx.Request) -> None:
+    """Reusable final-destination check for the campaign's raw HTTP adapter."""
+    require_simulation()
+    parsed = urlsplit(str(request.url))
+    require_public_demo_url(f"{parsed.scheme}://{parsed.netloc}")
+    if (
+        request.method != "GET"
+        or not parsed.path.startswith(API_PREFIX + "/")
+        or not public_read_path(parsed.path.removeprefix(API_PREFIX))
+        or any(
+            k.lower().startswith(("authorization", "kalshi-access", "cookie"))
+            for k in request.headers
+        )
+    ):
+        raise SimulationOnlyError("Only unsigned public demo market reads are allowed.")
+
+
 class KalshiError(RuntimeError):
     """Raised when the Kalshi API returns an error response."""
 
@@ -80,6 +97,8 @@ class KalshiClient:
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=timeout,
+            trust_env=False,
+            follow_redirects=False,
             event_hooks={"request": [self._sign_request]},
         )
 
@@ -101,18 +120,7 @@ class KalshiClient:
 
     async def _sign_request(self, request: httpx.Request) -> None:
         """Final network boundary: public demo market GETs only, never signed."""
-        require_simulation()
-        parsed = urlsplit(str(request.url))
-        require_public_demo_url(f"{parsed.scheme}://{parsed.netloc}")
-        if (
-            request.method != "GET"
-            or not parsed.path.startswith(API_PREFIX + "/")
-            or not public_read_path(parsed.path.removeprefix(API_PREFIX))
-            or any(
-                k.lower().startswith(("authorization", "kalshi-access")) for k in request.headers
-            )
-        ):
-            raise SimulationOnlyError("Only unsigned public demo market reads are allowed.")
+        validate_public_request(request)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         require_simulation()

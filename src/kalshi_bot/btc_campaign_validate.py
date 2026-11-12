@@ -14,12 +14,13 @@ import math
 import sqlite3
 import time
 from contextlib import closing
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import Any
 
 from kalshi_bot.btc_campaign import Protocol
-from kalshi_bot.btc_rules import utc_timestamp
-from kalshi_bot.btc_validate import scores
+from kalshi_bot.btc_rules import utc_timestamp, verify_market
+from kalshi_bot.btc_validate import executable_edges, scores
 from kalshi_bot.safety import require_simulation
 
 
@@ -31,6 +32,71 @@ def digest(value: Any) -> bool:
 
 def numeric(value: Any) -> bool:
     return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+
+def raw_edge_summary(
+    rows: list[dict[str, Any]], frames: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    """One frozen forecast per market; no best-tick/side/outcome selection or fills."""
+    values: dict[str, list[float]] = {"yes": [], "no": []}
+    excluded = 0
+    for row in rows:
+        try:
+            evidence = frames[row["evidence_sha256"]]
+            encoded = evidence["canonical"]
+            if hashlib.sha256(encoded.encode()).hexdigest() != row["evidence_sha256"]:
+                raise ValueError("Raw frame fingerprint mismatch.")
+            frame = json.loads(encoded)
+            if frame["at"] != row["predicted_at"]:
+                raise ValueError("Raw forecast time mismatch.")
+            payload = frame["payload"]
+            market = verify_market(payload["market_metadata"], frame["series"], now=frame["at"])
+            if market.ticker != row["ticker"] or market.closes_at != row["closes_at"]:
+                raise ValueError("Raw market identity mismatch.")
+            strict = executable_edges(
+                {**payload, "yes_probability": row["probability"]}, evidence["received"]
+            )
+            if not strict["strict_execution_eligible"]:
+                raise ValueError("Missing executable timestamp/quote evidence.")
+            for side, probability in (("yes", row["probability"]), ("no", 1 - row["probability"])):
+                if strict["strict_" + side + "_net_edge"] is None:
+                    continue
+                # Same conservative cent rounding/slippage as the future planner;
+                # no fictitious maker rebates or hindsight side selection.
+                limit = (
+                    int(
+                        (Decimal(str(payload[side + "_ask"])) * 100).to_integral_value(
+                            rounding=ROUND_CEILING
+                        )
+                    )
+                    + 2
+                )
+                fee = max(2, math.ceil(0.07 * (limit / 100) * (1 - limit / 100) * 100))
+                if not 1 <= limit <= 99 or limit + fee > 100:
+                    continue
+                if payload[side + "_ask_depth"] < 4:
+                    continue
+                values[side].append(probability - (limit + fee) / 100)
+        except (ValueError, TypeError, KeyError, ArithmeticError):
+            excluded += 1
+    return {
+        "forecast_markets_considered": len(rows),
+        "excluded_missing_unverified_evidence": excluded,
+        "sides": {
+            side: {
+                "qualified_quote_count": len(v),
+                "mean_estimated_net_edge": sum(v) / len(v) if v else None,
+                "maximum_estimated_net_edge": max(v, default=None),
+                "at_least_eight_percentage_points": sum(edge >= 0.08 for edge in v),
+            }
+            for side, v in values.items()
+        },
+        "assumptions": "One contract; executable ask rounded up +2c slippage; >=2c fee; "
+        "<=$1 full loss; >=4 resting contracts; no calibrated probability haircut applied.",
+        "not_a_confidence_bound": True,
+        "not_a_trade_or_portfolio_simulation": True,
+        "entries_enabled": False,
+    }
 
 
 def evaluate_campaign(path: Path, *, as_of: float | None = None) -> dict[str, Any]:
@@ -61,6 +127,31 @@ def evaluate_campaign(path: Path, *, as_of: float | None = None) -> dict[str, An
             raise ValueError("Campaign manifest fingerprint mismatch.")
         db.row_factory = sqlite3.Row
         raw = db.execute("SELECT * FROM campaign_forecasts ORDER BY predicted_at,ticker").fetchall()
+        frames: dict[str, dict[str, Any]] = {}
+        snapshot_coverage = None
+        if db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='supervisor_frames'"
+        ).fetchone():
+            frames = {
+                r["sha256"]: dict(r)
+                for r in db.execute(
+                    "SELECT s.sha256,s.canonical,s.received FROM supervisor_frames s "
+                    "JOIN campaign_forecasts f ON s.sha256=f.evidence_sha256 WHERE s.received<=?",
+                    (cutoff,),
+                )
+            }
+            covered = db.execute(
+                "SELECT COUNT(*),COALESCE(SUM(complete),0),COALESCE(SUM(stale),0) "
+                "FROM supervisor_frames WHERE received<=?",
+                (cutoff,),
+            ).fetchone()
+            snapshot_coverage = {
+                "recorded": covered[0],
+                "complete": covered[1],
+                "stale": covered[2],
+                "complete_percentage": 100 * covered[1] / covered[0] if covered[0] else None,
+                "denominator": "Recorded frames only; supervisor reports outage slots separately.",
+            }
 
     groups: dict[str, list[dict[str, Any]]] = {
         "development": [],
@@ -131,6 +222,7 @@ def evaluate_campaign(path: Path, *, as_of: float | None = None) -> dict[str, An
             "score_eligible_contracts": len(rows),
             "required_contracts": minima[cohort],
             "scores": None if sealed else scores(rows, baseline if cohort == "test" else None),
+            "hypothetical_edges": None if sealed else raw_edge_summary(rows, frames),
         }
     return {
         "as_of": cutoff,
@@ -144,8 +236,14 @@ def evaluate_campaign(path: Path, *, as_of: float | None = None) -> dict[str, An
         "metrics": metrics,
         "baseline": "Laplace-smoothed development labels available before first test prediction",
         "minimum_sample_counts_met": all(len(groups[c]) >= minima[c] for c in groups),
-        "snapshot_data_coverage": None,
-        "strict_hypothetical_net_edges": None,
+        "snapshot_data_coverage": snapshot_coverage,
+        "strict_hypothetical_net_edges": {c: metrics[c]["hypothetical_edges"] for c in metrics}
+        if snapshot_coverage is not None
+        else None,
+        "paper_trial_completed": False,
+        "paper_trade_count": 0,
+        "paper_win_rate": None,
+        "simulated_profitability": None,
         "protocol_authorization_verified": False,
         "data_provenance_verified": False,
         "model_performance_validated": False,
@@ -154,7 +252,8 @@ def evaluate_campaign(path: Path, *, as_of: float | None = None) -> dict[str, An
         "collection_started": False,
         "limitations": [
             "Registry hashes are declarations, not authenticated market/settlement evidence.",
-            "No raw quotes here: freshness, executable edges and snapshot coverage unavailable.",
+            "Raw edges require matching supervisor frames; missing evidence is excluded.",
+            "Estimated edges are not calibrated confidence bounds or simulated profitability.",
             "Distinct contracts are not proof of statistical independence; time-block "
             "uncertainty and regime coverage still required.",
             "No fitting, threshold selection, calibration artifact, promotion or orders.",

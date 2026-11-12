@@ -32,6 +32,7 @@ def snapshot(
     """Never instantiate PaperBroker; missing data is unknown, never a default $50."""
     require_simulation()
     now = time.time() if now is None else now
+    reconciled_pnls: list[int] | None = None
     result: dict[str, Any] = {
         "generated_at": now,
         "mode": "observation-only",
@@ -56,6 +57,8 @@ def snapshot(
         "kill_reason": "Control journal not loaded; entry release remains sealed.",
         "unresolved_intents": None,
         "guard_health": None,
+        "campaign": None,
+        "reconciled_closed_positions": None,
     }
     if journal is not None:
         try:
@@ -68,6 +71,8 @@ def snapshot(
                 result["unresolved_intents"] = db.execute(
                     "SELECT COUNT(*) FROM auto_intents WHERE status!='reconciled'"
                 ).fetchone()[0]
+                reconciled_pnls = [r[0] for r in db.execute("SELECT pnl_cents FROM auto_results")]
+                result["reconciled_closed_positions"] = len(reconciled_pnls)
             health_path = journal.parent / "guard-health.json"
             if health_path.exists():
                 health = json.loads(health_path.read_text())
@@ -103,6 +108,9 @@ def snapshot(
                 settled_filled_markets=len(closed),
                 win_rate=sum(r[0] > 0 for r in closed) / len(closed) if closed else None,
             )
+            if reconciled_pnls and sum(reconciled_pnls) == account["realized_pnl"]:
+                result["win_rate"] = sum(p > 0 for p in reconciled_pnls) / len(reconciled_pnls)
+                result["win_rate_scope"] = "Reconciled closed market positions, including sales."
             # No invented zero drawdown when there have been trades but no equity records.
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             curve = [account["initial_cash"]]
@@ -125,6 +133,26 @@ def snapshot(
         try:
             with closing(connect_readonly(observations)) as db:
                 db.execute("BEGIN")
+                if db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='supervisor_control'"
+                ).fetchone():
+                    state = dict(db.execute("SELECT * FROM supervisor_control").fetchone())
+                    counts = dict(
+                        db.execute(
+                            "SELECT cohort,COUNT(*) FROM campaign_forecasts "
+                            "WHERE outcome IS NOT NULL GROUP BY cohort"
+                        )
+                    )
+                    result["campaign"] = {
+                        "state": state["status"],
+                        "stop_reason": state["reason"],
+                        "finalized_forecasts": {
+                            c: counts.get(c, 0) for c in ("development", "selection", "test")
+                        },
+                        "required": {"development": 100, "selection": 100, "test": 200},
+                        "counts_are_not_validation_or_trading_approval": True,
+                        "collection_release": "sealed",
+                    }
                 result["coverage"] = dict(
                     db.execute(
                         "SELECT COUNT(*) recorded, COALESCE(SUM(valid),0) originally_valid, "
@@ -235,6 +263,7 @@ p,footer{{color:#a8b8ca;line-height:1.6}}th{{color:#bcd7ef}}code{{color:#ffc66b}
 <h1>Observation control room</h1><div class="badge">
 AUTOMATIC EXECUTION DISABLED · PAPER ENTRIES DISABLED · LIVE ORDERS BLOCKED</div></header>
 <section class="cards">{tiles}</section>
+<h2>Validation campaign</h2><p>{esc(data.get("campaign") or "No approved campaign started.")}</p>
 <h2>Safety status</h2><p>Daily gross-loss cap: $2 · maximum unresolved positions: 1<br>
 Persistent kill armed: {esc(data.get("kill_armed"))}<br>
 Kill reason: {esc(data.get("kill_reason", "Unavailable"))}<br>

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, simulation-only-safety-paper-ledger]
   pull_request:
     branches: [main]
 
@@ -28,7 +28,7 @@ jobs:
       - name: Ruff (format)
         run: ruff format --check .
       - name: Mypy
-        run: mypy src
+        run: mypy src deploy/digitalocean/offsite_backup.py
 
   test:
     name: Test (${{ matrix.os }} / py${{ matrix.python-version }})

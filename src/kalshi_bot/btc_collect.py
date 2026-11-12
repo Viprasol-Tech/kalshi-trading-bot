@@ -32,7 +32,7 @@ from kalshi_bot.btc_observe import Observer, book_fields, ledger_state
 from kalshi_bot.btc_rules import SERIES, VerifiedMarket, utc_timestamp, verify_market, verify_series
 from kalshi_bot.btc_validate import executable_edges
 from kalshi_bot.exchange.client import API_PREFIX, KalshiClient
-from kalshi_bot.safety import require_simulation
+from kalshi_bot.safety import require_collection_release, require_simulation
 
 VERSION = 2
 MAX_SECONDS = 21600
@@ -217,25 +217,7 @@ class Collector(Observer):
                 # Old features/forecasts are retained, never trained on or relabeled.
             else:
                 super().__init__(output)
-                self.db.executescript("""
-                    CREATE TABLE slots (
-                        slot INTEGER PRIMARY KEY, started REAL, finished REAL,
-                        healthy INTEGER, state TEXT
-                    );
-                    CREATE TABLE references_seen (
-                        slot INTEGER PRIMARY KEY, received REAL,
-                        trade_at REAL, price REAL, valid INTEGER, error TEXT, payload TEXT
-                    );
-                    CREATE TABLE candidate_books (
-                        slot INTEGER, ticker TEXT, received REAL, payload TEXT,
-                        PRIMARY KEY(slot,ticker)
-                    );
-                    CREATE TABLE events (
-                        id INTEGER PRIMARY KEY, at REAL, kind TEXT, payload TEXT
-                    );
-                    CREATE UNIQUE INDEX observation_slot
-                    ON observations(json_extract(payload,'$.slot'),COALESCE(ticker,''));
-                """)
+                self.initialize_collector_tables(self.db)
                 now = time.time()
                 self.manifest = {
                     "version": VERSION,
@@ -289,6 +271,28 @@ class Collector(Observer):
                 self.db.close()
             self.lock.close()
             raise
+
+    @staticmethod
+    def initialize_collector_tables(db: sqlite3.Connection) -> None:
+        db.executescript("""
+                    CREATE TABLE IF NOT EXISTS slots (
+                        slot INTEGER PRIMARY KEY, started REAL, finished REAL,
+                        healthy INTEGER, state TEXT
+                    );
+                    CREATE TABLE IF NOT EXISTS references_seen (
+                        slot INTEGER PRIMARY KEY, received REAL,
+                        trade_at REAL, price REAL, valid INTEGER, error TEXT, payload TEXT
+                    );
+                    CREATE TABLE IF NOT EXISTS candidate_books (
+                        slot INTEGER, ticker TEXT, received REAL, payload TEXT,
+                        PRIMARY KEY(slot,ticker)
+                    );
+                    CREATE TABLE IF NOT EXISTS events (
+                        id INTEGER PRIMARY KEY, at REAL, kind TEXT, payload TEXT
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS observation_slot
+                    ON observations(json_extract(payload,'$.slot'),COALESCE(ticker,''));
+                """)
 
     def set_run(self, key: str, value: Any) -> None:
         self.db.execute(
@@ -683,6 +687,7 @@ async def collect(
     interval: float = 2,
     resume: bool = False,
 ) -> dict[str, Any]:
+    require_collection_release()
     observer = Collector(output, ledger, seconds=seconds, interval=interval, resume=resume)
     status = "interrupted"
     stop = asyncio.Event()

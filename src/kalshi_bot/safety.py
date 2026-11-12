@@ -13,6 +13,14 @@ class SimulationOnlyError(RuntimeError):
 AUTOMATIC_EXECUTION_ENABLED = False
 
 
+def require_collection_release() -> None:
+    """No flag or approval string can start the unreleased campaign collector."""
+    require_simulation()
+    raise SimulationOnlyError(
+        "Collection disabled: reviewed feed/host readiness and separate campaign approval required."
+    )
+
+
 def require_entry_release() -> None:
     """Sealed release gate: no env var, model artifact or CLI flag can grant consent.
 
