@@ -1,6 +1,10 @@
 {
-  "version": 1,
-  "status": "DRAFT_NOT_RUNNABLE",
+  "version": 2,
+  "status": "OFFLINE_SUPERVISOR_IMPLEMENTED_NOT_RUNNABLE",
+  "supervisor_module": "kalshi_bot.btc_supervisor",
+  "supervisor_database": "/var/lib/kalshi/campaign.db",
+  "supervisor_offline_only": true,
+  "slot_interval_seconds": 2,
   "hosting_approved": false,
   "demo_feed_connection_approved": false,
   "collection_approved": false,
@@ -38,7 +42,7 @@
     "Separate hosting, backup, demo-feed and campaign approvals",
     "Real host load, reboot, clean-instance restore, clock and external health tests",
     "Verified demo credential provenance, timestamp availability and stream completeness",
-    "Implement and verify the global cross-segment collection supervisor",
+    "Wire the offline supervisor to an approved evidence-producing collector and test on the approved host",
     "Freeze original UTC boundaries and hashes before any new observations"
   ]
 }

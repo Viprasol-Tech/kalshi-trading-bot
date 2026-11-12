@@ -259,6 +259,14 @@ report Brier, log loss, fixed-bin ECE, hypothetical net edges after asks/fees/
 slippage, data coverage and independent test-market count. No profitability
 claim follows from infrastructure tests or frequent snapshots.
 
+The **offline coordinator is now implemented** in `btc_supervisor.py`, with fixed
+six-hour windows, global slot deduplication, immutable deadline, atomic registry
+updates and persistent cross-window quality stops. See
+`docs/offline-campaign-supervisor.md` for the 334-test readiness update. It has
+no network driver or launch service, and `run_collection()` always refuses.
+Wiring and host acceptance remain separate work/approval gates; this addition
+does not turn the idle guard into a collector.
+
 ## Go/no-go
 
 Ready for **offline code review and local infrastructure drills only**. Separate

@@ -1,5 +1,11 @@
 # Automatic BTC execution foundation — disabled release
 
+Latest offline addition: `offline-campaign-supervisor.md` documents the tested
+400-market coordinator (334 offline tests overall). Its fixed deadlines,
+cross-window deduplication and quality stops are implemented, but network-driver,
+host/provenance integration and approvals remain blocked. No data collection or
+entries were started. Earlier test counts below describe their original phases.
+
 12 November 2026. Changes continue the existing Viprasol-Tech repository and
 draft PR. **Not ready for automatic trading or an unattended collection.**
 No new market observations, deployment, paid resources, paper entries, real

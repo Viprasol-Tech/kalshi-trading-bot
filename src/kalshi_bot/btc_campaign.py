@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import sqlite3
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from itertools import pairwise
 from pathlib import Path
@@ -141,6 +142,23 @@ class CampaignRegistry:
         probability: float,
         evidence_sha256: str,
     ) -> None:
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            self._forecast_in_transaction(
+                ticker, predicted_at, closes_at, probability, evidence_sha256
+            )
+
+    def _forecast_in_transaction(
+        self,
+        ticker: str,
+        predicted_at: float,
+        closes_at: float,
+        probability: float,
+        evidence_sha256: str,
+    ) -> None:
+        """Shared atomic writer for the offline supervisor; never an approval."""
+        if not self.db.in_transaction:
+            raise ValueError("Forecast requires an enclosing transaction.")
         cohort = self.protocol.cohort(predicted_at)
         if (
             not ticker.startswith("KXBTC15M-")
@@ -154,19 +172,16 @@ class CampaignRegistry:
         ):
             raise ValueError("Invalid fixed-horizon forecast evidence.")
         fields = (ticker, predicted_at, closes_at, probability, cohort, evidence_sha256)
-        with self.db:
-            self.db.execute("BEGIN IMMEDIATE")
-            old = self.db.execute(
-                "SELECT ticker,predicted_at,closes_at,probability,cohort,evidence_sha256 "
-                "FROM campaign_forecasts WHERE ticker=?",
-                (ticker,),
-            ).fetchone()
-            if old is not None and tuple(old) != fields:
-                raise ValueError("Conflicting same-market forecast; never overwrite cohort.")
-            self.db.execute(
-                "INSERT OR IGNORE INTO campaign_forecasts VALUES(?,?,?,?,?,?,NULL,NULL,NULL)",
-                fields,
-            )
+        old = self.db.execute(
+            "SELECT ticker,predicted_at,closes_at,probability,cohort,evidence_sha256 "
+            "FROM campaign_forecasts WHERE ticker=?",
+            (ticker,),
+        ).fetchone()
+        if old is not None and tuple(old) != fields:
+            raise ValueError("Conflicting same-market forecast; never overwrite cohort.")
+        self.db.execute(
+            "INSERT OR IGNORE INTO campaign_forecasts VALUES(?,?,?,?,?,?,NULL,NULL,NULL)", fields
+        )
 
     def outcome(
         self,
@@ -177,30 +192,41 @@ class CampaignRegistry:
     ) -> None:
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
-            row = self.db.execute(
-                "SELECT * FROM campaign_forecasts WHERE ticker=?", (ticker,)
-            ).fetchone()
-            if (
-                row is None
-                or type(outcome) is not int
-                or outcome not in (0, 1)
-                or not math.isfinite(confirmed_at)
-                or not row["closes_at"] <= confirmed_at <= self.protocol.deadline
-                or len(evidence_sha256) != 64
-                or any(c not in "0123456789abcdef" for c in evidence_sha256)
-            ):
-                raise ValueError("Unverified, late or missing forecast/outcome evidence.")
-            if row["outcome"] is not None and (
-                row["outcome"],
-                row["confirmed_at"],
-                row["outcome_evidence_sha256"],
-            ) != (outcome, confirmed_at, evidence_sha256):
-                raise ValueError("Conflicting finalized outcome; manual review required.")
-            self.db.execute(
-                "UPDATE campaign_forecasts SET outcome=?,confirmed_at=?,outcome_evidence_sha256=? "
-                "WHERE ticker=?",
-                (outcome, confirmed_at, evidence_sha256, ticker),
-            )
+            self._outcome_in_transaction(ticker, outcome, confirmed_at, evidence_sha256)
+
+    def _outcome_in_transaction(
+        self,
+        ticker: str,
+        outcome: int,
+        confirmed_at: float,
+        evidence_sha256: str,
+    ) -> None:
+        if not self.db.in_transaction:
+            raise ValueError("Outcome requires an enclosing transaction.")
+        row = self.db.execute(
+            "SELECT * FROM campaign_forecasts WHERE ticker=?", (ticker,)
+        ).fetchone()
+        if (
+            row is None
+            or type(outcome) is not int
+            or outcome not in (0, 1)
+            or not math.isfinite(confirmed_at)
+            or not row["closes_at"] <= confirmed_at <= self.protocol.deadline
+            or len(evidence_sha256) != 64
+            or any(c not in "0123456789abcdef" for c in evidence_sha256)
+        ):
+            raise ValueError("Unverified, late or missing forecast/outcome evidence.")
+        if row["outcome"] is not None and (
+            row["outcome"],
+            row["confirmed_at"],
+            row["outcome_evidence_sha256"],
+        ) != (outcome, confirmed_at, evidence_sha256):
+            raise ValueError("Conflicting finalized outcome; manual review required.")
+        self.db.execute(
+            "UPDATE campaign_forecasts SET outcome=?,confirmed_at=?,outcome_evidence_sha256=? "
+            "WHERE ticker=?",
+            (outcome, confirmed_at, evidence_sha256, ticker),
+        )
 
     def readiness(self) -> dict[str, Any]:
         counts = {
@@ -237,7 +263,7 @@ class CampaignRegistry:
             == Path(self.db.execute("PRAGMA database_list").fetchone()[2]).resolve()
         ):
             raise ValueError("Backup requires a new destination.")
-        with sqlite3.connect(destination) as backup:
+        with closing(sqlite3.connect(destination)) as backup:
             self.db.backup(backup)
             if backup.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise ValueError("Backup integrity failure.")
