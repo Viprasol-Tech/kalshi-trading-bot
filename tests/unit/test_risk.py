@@ -19,25 +19,27 @@ def _order(count: int, price: int = 50) -> OrderRequest:
 
 def test_rejects_oversized_order() -> None:
     rm = RiskManager(RiskLimits(max_contracts_per_order=10))
-    decision = rm.check(_order(11), current_position=0)
+    decision = rm.check(_order(11), current_position=0, available_cash=100_000)
     assert not decision.approved
 
 
 def test_rejects_position_breach() -> None:
     rm = RiskManager(RiskLimits(max_position_per_market=100))
-    decision = rm.check(_order(10), current_position=95)
+    decision = rm.check(_order(10), current_position=95, available_cash=100_000)
     assert not decision.approved
 
 
 def test_rejects_notional_breach() -> None:
     rm = RiskManager(RiskLimits(max_order_notional_cents=100))
-    decision = rm.check(_order(10, price=50), current_position=0)  # 500c > 100c
+    decision = rm.check(
+        _order(10, price=50), current_position=0, available_cash=100_000
+    )  # 500c + fees > 100c
     assert not decision.approved
 
 
 def test_approves_valid_order() -> None:
     rm = RiskManager(RiskLimits())
-    assert rm.check(_order(1), current_position=0).approved
+    assert rm.check(_order(1), current_position=0, available_cash=1000).approved
 
 
 def test_kelly_no_edge_returns_zero() -> None:

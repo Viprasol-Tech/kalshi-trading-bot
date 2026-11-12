@@ -1,0 +1,38 @@
+{
+  "status": "OFFLINE_FRAMEWORK_UNRELEASED",
+  "user_requested_automatic_simulation": true,
+  "runtime_release_ready": false,
+  "production_trading": false,
+  "production_credentials": false,
+  "hosting_approved": false,
+  "deploy_approved": false,
+  "bankroll_cents": 5000,
+  "maximum_trade_risk_cents": 100,
+  "daily_gross_loss_including_reserved_risk_cents": 200,
+  "maximum_open_or_pending_positions": 3,
+  "maximum_positions_per_category": 1,
+  "maximum_positions_per_correlated_group": 1,
+  "minimum_net_edge": 0.08,
+  "adverse_slippage_cents_each_direction": 2,
+  "minimum_displayed_contracts_each_side": 4,
+  "maximum_quote_age_seconds": 5,
+  "maximum_transport_latency_seconds": 2,
+  "shared_risk_group": ["crypto", "economics", "politics", "financial"],
+  "models": {
+    "crypto": "BTC 15-minute experimental model preserved; not approved or validated; no altcoin model",
+    "sports": null,
+    "economics": null,
+    "weather": null,
+    "politics": null,
+    "financial": null
+  },
+  "btc_campaign": {
+    "development": 100,
+    "selection": 100,
+    "untouched_test": 200,
+    "legacy_strategy_and_supervisor": "preserved",
+    "new_manifest_fingerprints_required_before_start": true
+  },
+  "configuration_cannot_enable_models_or_orders": true,
+  "notes": "Proposal only. Not a deployment, model certificate, feed authorization or paper activation flag."
+}

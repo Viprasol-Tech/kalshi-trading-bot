@@ -1,0 +1,40 @@
+[Unit]
+Description=Kalshi idle safety guard (NO collection or trading)
+After=local-fs.target
+ConditionPathExists=/etc/kalshi/hosting-approved
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Slice=kalshi.slice
+User=kalshi
+Group=kalshi-read
+WorkingDirectory=/opt/kalshi
+Environment=KALSHI_ENVIRONMENT=demo KALSHI_DRY_RUN=true PYTHONUNBUFFERED=1
+ExecStart=/opt/kalshi/.venv/bin/python -m kalshi_bot.hosting guard --data /var/lib/kalshi
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+StateDirectory=kalshi
+StateDirectoryMode=0750
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateNetwork=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/kalshi
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=250M
+CPUQuota=40%
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kalshi-guard
+
+[Install]
+WantedBy=multi-user.target

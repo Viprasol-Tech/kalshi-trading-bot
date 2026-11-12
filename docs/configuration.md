@@ -5,25 +5,20 @@ All settings are read from environment variables (prefixed `KALSHI_`) and from a
 
 | Variable | Default | Description |
 |---|---|---|
-| `KALSHI_API_KEY_ID` | _(empty)_ | API key ID (UUID). Required for authenticated calls. |
-| `KALSHI_PRIVATE_KEY_PATH` | `./secrets/kalshi_private_key.pem` | Path to the RSA private key PEM file. |
-| `KALSHI_ENVIRONMENT` | `demo` | `demo` (sandbox) or `prod` (live). |
-| `KALSHI_DRY_RUN` | `true` | Simulate orders instead of sending them. |
+| `KALSHI_API_KEY_ID` | _(empty)_ | Must remain empty; credentials are rejected. |
+| `KALSHI_PRIVATE_KEY_PATH` | `./secrets/kalshi_private_key.pem` | Legacy setting; no private key is loaded. |
+| `KALSHI_ENVIRONMENT` | `demo` | Only `demo` is permitted. |
+| `KALSHI_DRY_RUN` | `true` | Must be true; real order submission is blocked independently. |
 | `KALSHI_REQUEST_TIMEOUT` | `10` | HTTP timeout in seconds. |
 
 ## Environments & base URLs
 
 | Environment | REST base URL | WebSocket base URL |
 |---|---|---|
-| `prod` | `https://api.elections.kalshi.com/trade-api/v2` | `wss://api.elections.kalshi.com/trade-api/ws/v2` |
-| `demo` | `https://demo-api.kalshi.co/trade-api/v2` | `wss://demo-api.kalshi.co/trade-api/ws/v2` |
+| `demo` | `https://demo-api.kalshi.co/trade-api/v2` | Disabled on this branch |
 
-!!! note "Host naming"
-    Kalshi has referenced both `api.elections.kalshi.com` (used by the official
-    starter code) and `external-api.kalshi.com` (newer docs) for production. This
-    framework defaults to the battle-tested starter-code hosts and exposes the
-    base URLs in `kalshi_bot/config.py` so you can override them if Kalshi
-    migrates.
+Production URLs, credentialed requests, exchange portfolio access, and
+authenticated WebSockets are rejected. See [simulation-only policy](simulation-only.md).
 
 ## Programmatic use
 

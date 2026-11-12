@@ -12,7 +12,7 @@ from kalshi_bot.strategies.examples.momentum import Momentum
 
 
 class _BuyThenSell(Strategy):
-    """Buy on the first tick at 40c, sell on a later tick at 60c (a winner)."""
+    """Submit two-contract limits; only later executable quotes can fill."""
 
     name = "buy_then_sell"
 
@@ -29,7 +29,7 @@ class _BuyThenSell(Strategy):
                     ticker=t,
                     action=Action.BUY,
                     side=Side.YES,
-                    count=10,
+                    count=2,
                     type=OrderType.LIMIT,
                     yes_price=40,
                 )
@@ -40,7 +40,7 @@ class _BuyThenSell(Strategy):
                     ticker=t,
                     action=Action.SELL,
                     side=Side.YES,
-                    count=10,
+                    count=2,
                     type=OrderType.LIMIT,
                     yes_price=60,
                 )
@@ -49,7 +49,19 @@ class _BuyThenSell(Strategy):
 
 
 def _flat_snapshots() -> list[Market]:
-    return [Market(ticker="T", last_price=50, yes_bid=49, yes_ask=51) for _ in range(4)]
+    return [
+        Market(
+            ticker="T",
+            last_price=p,
+            yes_bid=p - 1,
+            yes_ask=p,
+            observed_at=1000.0 + i,
+            quote_id=f"flat-{i}",
+            yes_bid_size=8,
+            yes_ask_size=8,
+        )
+        for i, p in enumerate([39, 39, 63, 63])
+    ]
 
 
 def test_apply_fill_opens_and_blends() -> None:
@@ -74,13 +86,13 @@ def test_apply_fill_flip_through_flat() -> None:
 
 
 def test_backtester_realizes_winning_trade() -> None:
-    bt = Backtester(starting_balance_cents=100_000)
+    bt = Backtester(starting_balance_cents=5000)
     report = bt.run(_BuyThenSell(), _flat_snapshots())
     assert report.trades == 2
     assert report.final_position == 0
-    assert report.trade_pnls == [200.0]
+    assert report.trade_pnls == [34.0]
     assert report.win_rate == 1.0
-    assert report.pnl_cents == 200
+    assert report.pnl_cents == 34
 
 
 def test_backtester_records_equity_curve_length() -> None:
@@ -91,16 +103,16 @@ def test_backtester_records_equity_curve_length() -> None:
 
 
 def test_backtester_respects_risk_manager() -> None:
-    # Order of 10 exceeds a 1-contract cap, so no trades execute.
+    # Order of 2 exceeds a 1-contract cap, so no trades execute.
     rm = RiskManager(RiskLimits(max_contracts_per_order=1))
     report = Backtester(risk=rm).run(_BuyThenSell(), _flat_snapshots())
     assert report.trades == 0
 
 
 def test_backtester_charges_fees() -> None:
-    bt = Backtester(fee_cents_per_contract=1)
+    bt = Backtester(fee_cents_per_contract=2)
     report = bt.run(_BuyThenSell(), _flat_snapshots())
-    assert report.fees_paid_cents == 20  # 10 contracts * 2 fills * 1c
+    assert report.fees_paid_cents == 8  # 2 contracts * 2 fills * 2c
 
 
 def test_report_table_renders() -> None:

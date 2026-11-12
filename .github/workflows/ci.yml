@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, simulation-only-safety-paper-ledger]
   pull_request:
     branches: [main]
 
@@ -28,7 +29,7 @@ jobs:
       - name: Ruff (format)
         run: ruff format --check .
       - name: Mypy
-        run: mypy src
+        run: mypy src deploy/digitalocean/offsite_backup.py
 
   test:
     name: Test (${{ matrix.os }} / py${{ matrix.python-version }})
@@ -36,7 +37,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Standard public-repository runners, not paid larger/self-hosted runners.
+        # Avoid the latest macOS ARM / Windows pools that failed acquisition.
+        os: [ubuntu-latest, macos-15-intel, windows-2022]
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v6
