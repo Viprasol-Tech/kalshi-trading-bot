@@ -117,7 +117,13 @@ class Contract:
 
     @classmethod
     def verify(
-        cls, raw: dict[str, Any], series: dict[str, Any], *, at: float, now: float
+        cls,
+        raw: dict[str, Any],
+        series: dict[str, Any],
+        *,
+        at: float,
+        now: float,
+        event_metadata: dict[str, Any] | None = None,
     ) -> Contract:
         require_simulation()
         if not finite(now) or not finite(at) or not 0 <= now - at <= 60:
@@ -126,13 +132,18 @@ class Contract:
         ticker, event, prefix = raw.get("ticker"), raw.get("event_ticker"), series.get("ticker")
         if not isinstance(ticker, str) or not isinstance(event, str) or not isinstance(prefix, str):
             raise ValueError("Missing market/series identity.")
+        linked = (
+            event_metadata.get("event_ticker") == event
+            and event_metadata.get("series_ticker") == prefix
+            if event_metadata is not None
+            else event.startswith(prefix + "-") and ticker.startswith(event + "-")
+        )
         if (
             category is None
             or not ticker
             or not event
             or not prefix
-            or not event.startswith(prefix + "-")
-            or not ticker.startswith(event + "-")
+            or not linked
             or raw.get("status") not in ("open", "active")
             or series.get("fee_type") != "quadratic"
         ):
@@ -782,7 +793,7 @@ class PaperEngine:
             or not 0 <= now - received_at <= 5
             or raw.get("ticker") != contract.ticker
             or raw.get("event_ticker") != contract.event
-            or raw.get("status") != "settled"
+            or raw.get("status") != "finalized"
             or raw.get("result") not in ("yes", "no")
             or rules_digest(raw, contract.series) != contract.rules
             or utc_timestamp(raw["close_time"]) != contract.closes

@@ -29,6 +29,7 @@ def snapshot(path: Path, *, now: float | None = None) -> dict[str, Any]:
         "kill_verified": False,
         "positions": [],
         "trades": [],
+        "orders": [],
         "maximum_drawdown_cents": None,
         "marked_equity_cents": None,
         "health": {"fresh": False, "last_cycle": None},
@@ -84,6 +85,10 @@ def snapshot(path: Path, *, now: float | None = None) -> dict[str, Any]:
             ]
             result["trades"] = [
                 dict(r) for r in db.execute("SELECT * FROM mm_fills ORDER BY at DESC LIMIT 100")
+            ]
+            result["orders"] = [
+                dict(r)
+                for r in db.execute("SELECT * FROM mm_orders ORDER BY created DESC LIMIT 100")
             ]
             result["fees_cents"] = db.execute(
                 "SELECT COALESCE(SUM(fee),0) FROM mm_fills"
@@ -152,6 +157,7 @@ def render(data: dict[str, Any]) -> str:
     cash = "Unknown" if data["available_cents"] is None else f"${data['available_cents'] / 100:.2f}"
     positions = html.escape(json.dumps(data["positions"], indent=2))
     trades = html.escape(json.dumps(data["trades"], indent=2))
+    orders = html.escape(json.dumps(data["orders"], indent=2))
     signals = html.escape(json.dumps(data["signals"], indent=2))
     performance = html.escape(
         json.dumps(
@@ -188,6 +194,7 @@ pre{{white-space:pre-wrap;overflow-wrap:anywhere}}.scroll{{overflow:auto}}
 <section class="scroll"><table><tr><th>Category</th><th>Readiness</th><th>Closed</th>
 <th>Paper P&amp;L</th></tr>{rows}</table></section>
 <section><h2>Positions</h2><pre>{positions}</pre></section>
+<section><h2>Orders (latest 100)</h2><pre>{orders}</pre></section>
 <section><h2>Performance</h2><pre>{performance}</pre></section>
 <section><h2>Probabilities &amp; net-edge diagnostics</h2><pre>{signals}</pre></section>
 <section><h2>Fills &amp; fees</h2><pre>{trades}</pre></section>

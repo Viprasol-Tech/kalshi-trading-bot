@@ -267,6 +267,16 @@ def btc_paper(
     asyncio.run(_run())
 
 
+@app.command("btc-validation-manifest")
+def btc_validation_manifest(
+    ledger: Path = typer.Option(Path("data/paper.db"), exists=True, dir_okay=False),
+) -> None:
+    """Print an offline, unreleased BTC-first review manifest; no writes or feed IO."""
+    from kalshi_bot.btc_validation_manifest import build_manifest
+
+    console.print_json(data=build_manifest(ledger))
+
+
 @app.command("btc-history-audit")
 def btc_history_audit(
     limit: int = typer.Option(200, min=1, max=200),

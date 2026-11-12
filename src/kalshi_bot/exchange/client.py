@@ -46,7 +46,7 @@ def public_read_path(path: str) -> bool:
     """Allow market data, never private historical orders/fills/positions."""
     return (
         path == "/markets"
-        or path.startswith(("/markets/", "/series/", "/historical/markets/"))
+        or path.startswith(("/markets/", "/series/", "/events/", "/historical/markets/"))
         or path in ("/historical/cutoff", "/historical/markets")
     )
 

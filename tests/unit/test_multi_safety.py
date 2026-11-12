@@ -199,6 +199,9 @@ async def test_bounded_mock_demo_loop_discovers_buys_sells_and_stops(
     try:
         with respx.mock(assert_all_called=True) as api:
             api.get(base + "/markets").respond(200, json={"markets": [c.raw], "cursor": ""})
+            api.get(base + "/events/" + c.event).respond(
+                200, json={"event": {"event_ticker": c.event, "series_ticker": "TEST"}}
+            )
             api.get(base + "/series/TEST").respond(200, json={"series": c.series})
             api.get(base + "/markets/" + c.ticker).respond(200, json={"market": c.raw})
             api.get(base + "/markets/" + c.ticker + "/orderbook").mock(side_effect=response)
@@ -378,7 +381,7 @@ def test_daily_gains_never_replenish_gross_loss_budget(tmp_path: Path, released:
             e.cycle([(c, book(c, at + 1, yes=0.70))], now=at + 1)
             final = {
                 **c.raw,
-                "status": "settled",
+                "status": "finalized",
                 "result": result,
                 "settlement_ts": iso(at + 11),
                 "settlement_value_dollars": "1.0000" if result == "yes" else "0.0000",
@@ -411,7 +414,7 @@ def test_bad_settlement_never_credits_money(tmp_path: Path, released: None, chan
         before = e.db.execute("SELECT cash FROM mm_account").fetchone()[0]
         final = {
             **c.raw,
-            "status": "settled",
+            "status": "finalized",
             "result": "yes",
             "settlement_ts": iso(c.closes + 10),
             "settlement_value_dollars": "1.0000",

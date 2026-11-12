@@ -86,7 +86,7 @@ def test_each_category_automatic_entry_and_authoritative_settlement(
         assert e.db.execute("SELECT side FROM mm_intents").fetchone()[0] == side
         final = {
             **c.raw,
-            "status": "settled",
+            "status": "finalized",
             "result": outcome,
             "settlement_ts": iso(c.closes + 10),
             "settlement_value_dollars": "1.0000" if outcome == "yes" else "0.0000",
@@ -304,6 +304,9 @@ async def test_discovery_requires_actual_quote_event_timestamp(
         base = "https://demo-api.kalshi.co/trade-api/v2"
         with respx.mock(assert_all_called=True) as api:
             api.get(base + "/markets").respond(200, json={"markets": [c.raw], "cursor": ""})
+            api.get(base + "/events/" + c.event).respond(
+                200, json={"event": {"event_ticker": c.event, "series_ticker": "TEST"}}
+            )
             api.get(base + "/series/TEST").respond(200, json={"series": c.series})
             api.get(base + "/markets/" + c.ticker).respond(200, json={"market": c.raw})
             route = api.get(base + "/markets/" + c.ticker + "/orderbook").respond(
@@ -329,7 +332,7 @@ async def test_discovery_requires_actual_quote_event_timestamp(
                     },
                 )
                 assert len(await feed.scan(client)) == 1
-        assert e.db.execute("SELECT COUNT(*) FROM mm_reads").fetchone()[0] == 8
+        assert e.db.execute("SELECT COUNT(*) FROM mm_reads").fetchone()[0] == 10
         assert e.db.execute("SELECT COUNT(*) FROM mm_orders").fetchone()[0] == 0
     finally:
         e.close()

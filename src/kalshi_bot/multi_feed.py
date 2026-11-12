@@ -33,6 +33,9 @@ class MultiFeed:
               id INTEGER PRIMARY KEY,cursor TEXT,cycles INTEGER,failures INTEGER);
             INSERT OR IGNORE INTO mm_feed_state VALUES(1,'',0,0);
             CREATE TABLE IF NOT EXISTS mm_series_seen(prefix TEXT PRIMARY KEY,at REAL);
+            CREATE TABLE IF NOT EXISTS mm_metadata(
+              ticker TEXT PRIMARY KEY,event TEXT,series TEXT,provider_category TEXT,
+              received REAL,raw_event TEXT,raw_series TEXT);
         """)
         self.reads = 0
 
@@ -69,8 +72,9 @@ class MultiFeed:
         """One page/cycle with periodic first-page reseeding for rollover.
 
         Candidates hydrate round-robin; no category/strike inference from titles.
-        Series prefix is only an API lookup hint, verified against returned IDs.
-        Actual category comes from series metadata. Unsupported rules stay blocked.
+        Authoritative event.series_ticker supplies the series lookup, never a
+        parsed ticker prefix. Unknown provider categories are retained, not mapped
+        to a guessed strategy. No category's existence is assumed.
         """
         require_simulation()
         self.reads = 0
@@ -103,15 +107,14 @@ class MultiFeed:
         frames = []
         rows = self.db.execute("""
             WITH base AS (
-              SELECT *,substr(json_extract(raw,'$.event_ticker'),1,
-                instr(json_extract(raw,'$.event_ticker'),'-')-1) AS lookup_prefix
+              SELECT *,json_extract(raw,'$.event_ticker') AS lookup_prefix
               FROM mm_candidates
             ), ranked AS (
               SELECT *,ROW_NUMBER() OVER(
                 PARTITION BY lookup_prefix ORDER BY checked,ticker) AS rn FROM base
             )
             SELECT r.* FROM ranked r LEFT JOIN mm_series_seen s ON s.prefix=r.lookup_prefix
-            ORDER BY r.rn,COALESCE(s.at,0),r.checked,r.ticker LIMIT 8
+            ORDER BY r.rn,COALESCE(s.at,0),r.checked,r.ticker LIMIT 6
         """).fetchall()
         for row in rows:
             category = None
@@ -119,7 +122,19 @@ class MultiFeed:
             try:
                 listed = json.loads(row["raw"])
                 event = listed["event_ticker"]
-                prefix = event.split("-")[0]
+                if not isinstance(event, str) or not event:
+                    raise ValueError("Missing provider event identity.")
+                event_body, _ = await self.get(
+                    client, "/events/" + quote(event, safe=""), {"exclude_markets": "true"}
+                )
+                metadata = event_body["event"]
+                prefix = metadata.get("series_ticker")
+                if (
+                    metadata.get("event_ticker") != event
+                    or not isinstance(prefix, str)
+                    or not prefix
+                ):
+                    raise ValueError("Missing/mismatched authoritative event-series identity.")
                 series, _ = await self.get(client, "/series/" + quote(prefix, safe=""))
                 raw, at = await self.get(client, "/markets/" + quote(row["ticker"], safe=""))
                 if (
@@ -128,11 +143,49 @@ class MultiFeed:
                     or raw["market"].get("event_ticker") != event
                 ):
                     raise ValueError("Discovery/detail response identity mismatch.")
+                self.db.execute(
+                    "INSERT INTO mm_metadata VALUES(?,?,?,?,?,?,?) "
+                    "ON CONFLICT(ticker) DO UPDATE SET event=excluded.event,"
+                    "series=excluded.series,provider_category=excluded.provider_category,"
+                    "received=excluded.received,raw_event=excluded.raw_event,"
+                    "raw_series=excluded.raw_series",
+                    (
+                        row["ticker"],
+                        event,
+                        prefix,
+                        series["series"].get("category"),
+                        at,
+                        canonical(metadata),
+                        canonical(series["series"]),
+                    ),
+                )
+                # Event-specific fees can override the series. Until explicitly
+                # supported, do not silently use cheaper series defaults.
+                if any(
+                    metadata.get(k) is not None
+                    for k in ("fee_type_override", "fee_multiplier_override")
+                ):
+                    raise ValueError("Event-specific fees require reviewed support.")
+                if metadata.get("is_provisional") or raw["market"].get("is_provisional"):
+                    raise ValueError("Provisional metadata cannot qualify.")
+                event_category = metadata.get("category")
+                if (
+                    event_category is not None
+                    and str(event_category).strip().lower()
+                    != str(series["series"].get("category", "")).strip().lower()
+                ):
+                    raise ValueError("Conflicting provider event/series categories.")
                 reported = CATEGORY_NAMES.get(
                     str(series["series"].get("category", "")).strip().lower()
                 )
                 category = reported.value if reported is not None else None
-                contract = Contract.verify(raw["market"], series["series"], at=at, now=time.time())
+                contract = Contract.verify(
+                    raw["market"],
+                    series["series"],
+                    at=at,
+                    now=time.time(),
+                    event_metadata=metadata,
+                )
                 category = contract.category.value
                 body, received = await self.get(
                     client,
@@ -165,7 +218,7 @@ class MultiFeed:
             self.db.execute(
                 "INSERT INTO mm_series_seen VALUES(?,?) "
                 "ON CONFLICT(prefix) DO UPDATE SET at=excluded.at",
-                (prefix, time.time()),
+                (str(json.loads(row["raw"]).get("event_ticker", "")), time.time()),
             )
         return frames
 
@@ -190,7 +243,7 @@ class MultiFeed:
                 "ON CONFLICT(ticker) DO UPDATE SET at=excluded.at",
                 (contract.ticker, received),
             )
-            if body["market"].get("status") == "settled":
+            if body["market"].get("status") == "finalized":
                 self.engine.settle(contract, body["market"], received_at=received, now=time.time())
 
 

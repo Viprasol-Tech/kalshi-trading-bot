@@ -67,6 +67,7 @@ def implementation_fingerprint() -> str:
 
 def quote_timestamp(body: dict[str, Any], received: float) -> dict[str, Any]:
     """Only explicitly quote/book timestamps; metadata.updated_time is NOT one."""
+    stamps = []
     for container, obj in (("root", body), ("orderbook_fp", body.get("orderbook_fp", {}))):
         if not isinstance(obj, dict):
             continue
@@ -80,13 +81,30 @@ def quote_timestamp(body: dict[str, Any], received: float) -> dict[str, Any]:
                 valid = not isinstance(raw, bool) and math.isfinite(stamp) and 0 <= age <= 5
             except (ValueError, TypeError, OverflowError):
                 stamp, age, valid = None, None, False
+            stamps.append(
+                {
+                    "quote_timestamp_raw": raw,
+                    "quote_timestamp_field": container + "." + key,
+                    "quote_timestamp": stamp,
+                    "quote_age_s": age,
+                    "quote_timestamp_status": "fresh" if valid else "invalid_or_stale",
+                }
+            )
+    if stamps:
+        first = stamps[0]
+        # Conflicting event fields must not let an earlier fresh value mask an
+        # invalid/stale second one. Never choose the most convenient timestamp.
+        if any(
+            s["quote_timestamp_status"] != "fresh"
+            or s["quote_timestamp"] != first["quote_timestamp"]
+            for s in stamps
+        ):
             return {
-                "quote_timestamp_raw": raw,
-                "quote_timestamp_field": container + "." + key,
-                "quote_timestamp": stamp,
-                "quote_age_s": age,
-                "quote_timestamp_status": "fresh" if valid else "invalid_or_stale",
+                **first,
+                "quote_timestamp_status": "invalid_or_stale",
+                "quote_timestamp_conflict": len(stamps) > 1,
             }
+        return first
     return {
         "quote_timestamp": None,
         "quote_age_s": None,
