@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -257,7 +258,7 @@ def test_dashboard_readonly_no_fabrication_and_html_escaping(tmp_path: Path) -> 
 def test_dashboard_has_no_fabricated_drawdown_after_unrecorded_trade(tmp_path: Path) -> None:
     path = tmp_path / "paper.db"
     PaperBroker(path).close()
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         # Raw fixture only, never an execution authorization.
         db.execute("INSERT INTO fills VALUES(1,'fixture','T','yes','buy',1,40,2,?)", (NOW,))
     assert snapshot(path, now=NOW)["maximum_drawdown"] is None

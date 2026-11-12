@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import sqlite3
+from contextlib import closing
 from dataclasses import asdict
 from pathlib import Path
 
@@ -195,8 +196,10 @@ def test_online_snapshot_restores_ledger_guard_deadline_and_unique_slots(
     c.db.commit()
     original_deadline = c.manifest["deadline"]
     with (
-        sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True) as src,
-        sqlite3.connect(restored) as dst,
+        closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as src,
+        closing(sqlite3.connect(restored)) as dst,
+        src,
+        dst,
     ):
         src.backup(dst)
     c.close()

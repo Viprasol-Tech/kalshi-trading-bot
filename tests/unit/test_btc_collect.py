@@ -8,6 +8,7 @@ import math
 import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from dataclasses import asdict
 from datetime import UTC, datetime
 from email.utils import format_datetime
@@ -280,7 +281,7 @@ def test_terminal_stop_cannot_be_resumed_and_legacy_not_modified(
     with pytest.raises(ValueError, match="Terminal"):
         Collector(path, account, resume=True)
     legacy = tmp_path / "legacy.db"
-    with sqlite3.connect(legacy) as db:
+    with closing(sqlite3.connect(legacy)) as db, db:
         db.execute("CREATE TABLE run(key TEXT,value TEXT)")
     content = legacy.read_bytes()
     with pytest.raises(ValueError, match="Not a resumable"):

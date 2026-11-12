@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -79,7 +80,7 @@ def test_asof_filters_future_labels_and_seals_selection(tmp_path: Path) -> None:
 def test_late_pretest_label_excluded_not_used_in_baseline(tmp_path: Path) -> None:
     path = tmp_path / "campaign.db"
     staged_campaign(path)
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(
             "UPDATE campaign_forecasts SET confirmed_at=? WHERE cohort='development'",
             (protocol().test_starts_at + 1,),
@@ -104,7 +105,7 @@ def test_late_pretest_label_excluded_not_used_in_baseline(tmp_path: Path) -> Non
 def test_tampered_staging_evidence_fails_closed(tmp_path: Path, statement: str) -> None:
     path = tmp_path / "campaign.db"
     staged_campaign(path)
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(statement)
     with pytest.raises(ValueError):
         evaluate_campaign(path, as_of=protocol().deadline)
