@@ -1,0 +1,33 @@
+[Unit]
+Description=Loopback authenticated dashboard proxy (private HTTPS supplied by approved VPN)
+After=kalshi-dashboard.service
+ConditionPathExists=/etc/kalshi/hosting-approved
+ConditionPathExists=/etc/kalshi/dashboard-access-approved
+ConditionPathExists=/etc/kalshi/dashboard.env
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Slice=kalshi.slice
+User=kalshi-proxy
+Group=kalshi-proxy
+EnvironmentFile=/etc/kalshi/dashboard.env
+ExecStart=/usr/bin/caddy run --config /opt/kalshi/deploy/digitalocean/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+InaccessiblePaths=/var/lib/kalshi /var/backups/kalshi /etc/kalshi/credentials
+IPAddressDeny=any
+IPAddressAllow=127.0.0.0/8
+IPAddressAllow=::1/128
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=100M
+
+[Install]
+WantedBy=multi-user.target

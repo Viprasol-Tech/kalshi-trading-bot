@@ -132,14 +132,16 @@ def paper_status() -> None:
 
 @app.command("btc-dashboard")
 def btc_dashboard(
-    ledger: Path = typer.Option(Path("data/paper.db"), exists=True, dir_okay=False),
+    ledger: Path = typer.Option(Path("data/paper.db"), dir_okay=False),
     observations: Path | None = typer.Option(None, exists=True, dir_okay=False),
     port: int = typer.Option(8765, min=1024, max=65535),
+    journal: Path | None = typer.Option(None, exists=True, dir_okay=False),
+    published_status: Path | None = typer.Option(None, dir_okay=False),
 ) -> None:
     """Serve a loopback-only read-only dashboard; never collect or submit orders."""
     from kalshi_bot.btc_dashboard import serve
 
-    serve(ledger, observations, port=port)
+    serve(ledger, observations, port=port, journal=journal, published_status=published_status)
 
 
 @app.command("btc-kill")

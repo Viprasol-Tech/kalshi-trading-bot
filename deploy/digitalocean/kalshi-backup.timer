@@ -1,0 +1,13 @@
+[Unit]
+Description=Five-minute backup schedule (only after separate approval)
+ConditionPathExists=/etc/kalshi/hosting-approved
+ConditionPathExists=/etc/kalshi/offsite-backup-approved
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=kalshi-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -23,7 +23,11 @@ def connect_readonly(path: Path) -> sqlite3.Connection:
 
 
 def snapshot(
-    ledger: Path, observations: Path | None = None, *, now: float | None = None
+    ledger: Path,
+    observations: Path | None = None,
+    *,
+    now: float | None = None,
+    journal: Path | None = None,
 ) -> dict[str, Any]:
     """Never instantiate PaperBroker; missing data is unknown, never a default $50."""
     require_simulation()
@@ -46,7 +50,35 @@ def snapshot(
         "trade_log": [],
         "errors": [],
         "settlement": "Kalshi finalized CF BRTI rules; Coinbase is a proxy only",
+        "daily_loss_limit_cents": 200,
+        "maximum_unresolved_positions": 1,
+        "kill_armed": None,
+        "kill_reason": "Control journal not loaded; entry release remains sealed.",
+        "unresolved_intents": None,
+        "guard_health": None,
     }
+    if journal is not None:
+        try:
+            with closing(connect_readonly(journal)) as db:
+                db.execute("BEGIN")
+                row = db.execute("SELECT killed,reason FROM auto_control WHERE id=1").fetchone()
+                if row is None:
+                    raise ValueError("Missing control.")
+                result["kill_armed"], result["kill_reason"] = bool(row[0]), row[1]
+                result["unresolved_intents"] = db.execute(
+                    "SELECT COUNT(*) FROM auto_intents WHERE status!='reconciled'"
+                ).fetchone()[0]
+            health_path = journal.parent / "guard-health.json"
+            if health_path.exists():
+                health = json.loads(health_path.read_text())
+                result["guard_health"] = {
+                    "fresh": 0 <= now - health["at"] <= 45,
+                    "service": "idle-safety-guard",
+                    "collection_running": False,
+                    "storage_ok": health.get("storage_ok") is True,
+                }
+        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
+            result["errors"].append("Control/guard status unavailable; release remains sealed.")
     try:
         with closing(connect_readonly(ledger)) as db:
             db.execute("BEGIN")
@@ -203,6 +235,11 @@ p,footer{{color:#a8b8ca;line-height:1.6}}th{{color:#bcd7ef}}code{{color:#ffc66b}
 <h1>Observation control room</h1><div class="badge">
 AUTOMATIC EXECUTION DISABLED · PAPER ENTRIES DISABLED · LIVE ORDERS BLOCKED</div></header>
 <section class="cards">{tiles}</section>
+<h2>Safety status</h2><p>Daily gross-loss cap: $2 · maximum unresolved positions: 1<br>
+Persistent kill armed: {esc(data.get("kill_armed"))}<br>
+Kill reason: {esc(data.get("kill_reason", "Unavailable"))}<br>
+Unresolved intents: {esc(data.get("unresolved_intents"))}<br>
+Idle guard (not market collection): {esc(data.get("guard_health"))}</p>
 <p>Predictions are experimental. Coinbase BTC-USD is a proxy, not the settlement
 index. Net edges require actual fresh quote timestamps and executable depth.
 Archived quotes are never displayed as current opportunities. No trade history is fabricated.</p>
@@ -225,7 +262,14 @@ Read errors: {esc(data["errors"])}</p>
 activation button, or automatic calibration promotion.</footer></html>"""
 
 
-def serve(ledger: Path, observations: Path | None, *, port: int = 8765) -> None:
+def serve(
+    ledger: Path,
+    observations: Path | None,
+    *,
+    port: int = 8765,
+    journal: Path | None = None,
+    published_status: Path | None = None,
+) -> None:
     """Local only. Deploying publicly requires separate access control and approval."""
     require_simulation()
 
@@ -237,7 +281,15 @@ def serve(ledger: Path, observations: Path | None, *, port: int = 8765) -> None:
             if self.path not in ("/", "/api/status"):
                 self.send_error(404)
                 return
-            data = snapshot(ledger, observations)
+            try:
+                data = (
+                    read_published(published_status, now=time.time())
+                    if published_status is not None
+                    else snapshot(ledger, observations, journal=journal)
+                )
+            except (OSError, ValueError, KeyError, TypeError):
+                self.send_error(503, "Read-only status unavailable or invalid.")
+                return
             body = (
                 json.dumps(data, allow_nan=False).encode()
                 if self.path == "/api/status"
@@ -262,3 +314,28 @@ def serve(ledger: Path, observations: Path | None, *, port: int = 8765) -> None:
 
     with HTTPServer(("127.0.0.1", port), Handler) as server:
         server.serve_forever()
+
+
+def read_published(path: Path, *, now: float) -> dict[str, Any]:
+    """Serve an atomic writer-side export, not live SQLite under a read-only mount."""
+    require_simulation()
+    data: dict[str, Any] = json.loads(path.read_text())
+    generated = data["generated_at"]
+    if (
+        data.get("entries_enabled") is not False
+        or data.get("live_enabled") is not False
+        or not isinstance(generated, (int, float))
+        or isinstance(generated, bool)
+        or not 0 <= now - generated <= 45
+    ):
+        raise ValueError("Published status stale/unsafe.")
+    for signal in data["signals"]:
+        if not 0 <= now - signal["observed_at"] <= 5:
+            signal.update(
+                historical=True,
+                strict_execution_eligible=False,
+                strict_yes_net_edge=None,
+                strict_no_net_edge=None,
+                strict_edge_reason="Published quote is archived/stale; not executable.",
+            )
+    return data
