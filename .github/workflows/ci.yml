@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, simulation-only-safety-paper-ledger]
   pull_request:
