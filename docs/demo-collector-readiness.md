@@ -102,15 +102,26 @@ exchange cancel races and real exchange reconciliation are NOT supported here.
 Unknown/fractional/inconsistent histories fail closed; they are not called fully
 implemented live execution. A future live adapter remains separate work.
 
+The observation bridge deliberately never dispatches orders. A reviewed paper
+trial orchestrator still must connect accepted quotes to the staged entry/exit/
+fill-monitoring adapters and record continuous equity after strategy validation.
+These isolated adapter drills are not an operational automatic paper loop.
+
 ## Verification and CI
 
-361 local offline tests passed, including mock-HTTP rollover/finalized settlement,
+369 local offline tests passed, including mock-HTTP rollover/finalized settlement,
 receipt recovery/corruption, timestamp/strike rejection, source timeout logging,
 sealed launches and isolated YES/NO entry/exit lifecycle drills. Strict Mypy on
 50 source/wrapper files, Ruff lint/format and 87% total statement coverage passed.
 Local restic/Caddy/systemd drills ran; deprecation/resource warnings remain.
 All network sockets remain forbidden in tests. Execution permission is patched
 only inside explicit temporary fixtures, never in runtime code.
+
+Actual hosted testing exposed Windows-only issues in the test event loop and
+backup file flushing. The fixes permit only CPython's internal loopback socketpair
+by exact code identity (other localhost/external sockets remain blocked), and use
+writable handles to flush created backup copies, never the source ledger. Eight
+regression tests were added; hosted results are tracked separately from local runs.
 
 The actual account is still $50 with zero orders, fills, fees and realized P&L.
 Its logical digest is unchanged:

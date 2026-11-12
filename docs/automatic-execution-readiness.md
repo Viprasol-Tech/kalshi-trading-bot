@@ -1,7 +1,7 @@
 # Automatic BTC execution foundation — disabled release
 
 Latest update: `demo-collector-readiness.md` documents the integrated but sealed
-demo collector, staged automatic sales, and 361-test offline readiness result.
+demo collector, staged automatic sales, and 369-test offline readiness result.
 No new market observations or paper trial exist. Feed/host proofs and explicit
 approvals remain required. The historical foundation below is not a launch claim.
 

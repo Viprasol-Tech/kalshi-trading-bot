@@ -77,7 +77,7 @@ def backup(source: Path, destination: Path) -> dict[str, Any]:
                 if dst.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
                     raise ValueError("Backup integrity failed.")
             os.chmod(target, 0o600)
-            with target.open("rb") as f:
+            with target.open("r+b") as f:
                 os.fsync(f.fileno())
             manifest["files"][name] = {"sha256": digest(target), "bytes": target.stat().st_size}
         if not manifest["files"] or "paper.db" not in manifest["files"]:
@@ -135,7 +135,7 @@ def restore(source: Path, destination: Path) -> dict[str, Any]:
         for name in manifest["files"]:
             shutil.copyfile(source / name, destination / name)
             os.chmod(destination / name, 0o600)
-            with (destination / name).open("rb") as f:
+            with (destination / name).open("r+b") as f:
                 os.fsync(f.fileno())
         # Preserve manifest for verification/audit. This is not restart permission.
         shutil.copyfile(source / "manifest.json", destination / "manifest.json")

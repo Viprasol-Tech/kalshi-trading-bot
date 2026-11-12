@@ -66,6 +66,7 @@ def implementation_sha256() -> str:
         "btc_strategy.py",
         "btc_reconcile.py",
         "paper.py",
+        "hosting.py",
         "btc_data.py",
         "btc_collect.py",
         "btc_observe.py",
