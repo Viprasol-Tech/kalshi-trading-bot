@@ -5,6 +5,9 @@ from __future__ import annotations
 import copy
 
 import pytest
+from websockets.datastructures import Headers
+from websockets.exceptions import InvalidStatus
+from websockets.http11 import Response
 
 from kalshi_bot.demo_quote_ws import (
     DEMO_WS_URL,
@@ -61,10 +64,10 @@ def test_read_only_fixed_demo_endpoint_and_subscription() -> None:
     for bad in ([], [TICKER, TICKER], ["OTHER"], ["KXBTC15M-../../orders"]):
         with pytest.raises(ValueError):
             subscription(bad)
-    with pytest.raises(SimulationOnlyError, match="redirects"):
-        NoRedirectConnect.handle_redirect(
-            object.__new__(NoRedirectConnect), "wss://external-api-ws.kalshi.com"
-        )
+    redirect = InvalidStatus(Response(302, "Redirect", Headers()))
+    refused = NoRedirectConnect.process_redirect(object.__new__(NoRedirectConnect), redirect)
+    assert isinstance(refused, SimulationOnlyError)
+    assert "redirects" in str(refused)
 
 
 @pytest.mark.asyncio

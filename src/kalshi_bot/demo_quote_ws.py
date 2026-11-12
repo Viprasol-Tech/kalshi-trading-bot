@@ -19,7 +19,8 @@ from decimal import Decimal
 from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric import rsa
-from websockets.legacy.client import Connect
+from websockets.asyncio.client import connect
+from websockets.exceptions import InvalidStatus
 
 from kalshi_bot.btc_rules import utc_timestamp
 from kalshi_bot.exchange.auth import build_auth_headers
@@ -29,10 +30,13 @@ DEMO_WS_URL = "wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2"
 WS_PATH = "/trade-api/ws/v2"
 
 
-class NoRedirectConnect(Connect):
-    def handle_redirect(self, uri: str) -> None:
-        # websockets otherwise follows redirects and can forward custom auth headers.
-        raise SimulationOnlyError("Demo WebSocket redirects are forbidden.")
+class NoRedirectConnect(connect):
+    def process_redirect(self, exc: Exception) -> Exception:
+        # Never return a URI: custom Kalshi auth headers must not be forwarded.
+        # Reject even same-origin redirects and redirects without Location.
+        if isinstance(exc, InvalidStatus) and 300 <= exc.response.status_code < 400:
+            return SimulationOnlyError("Demo WebSocket redirects are forbidden.")
+        return exc
 
 
 def subscription(tickers: list[str]) -> dict[str, Any]:
@@ -263,7 +267,10 @@ async def stream(
         asyncio.timeout(duration_seconds),
         NoRedirectConnect(
             DEMO_WS_URL,
-            extra_headers=headers,
+            additional_headers=headers,
+            # Modern websockets otherwise discovers proxies from the environment.
+            # The separately approved probe must connect directly to the demo host.
+            proxy=None,
             open_timeout=10,
             ping_interval=20,
             ping_timeout=10,
@@ -275,6 +282,8 @@ async def stream(
         await ws.send(json.dumps(command))
         while time.monotonic() < deadline:
             message = json.loads(await ws.recv())
+            if not isinstance(message, dict):
+                raise ValueError("Demo feed message must be a JSON object.")
             if message.get("type") in ("subscribed", "ok"):
                 continue
             if message.get("type") == "error":

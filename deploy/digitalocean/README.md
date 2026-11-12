@@ -240,9 +240,15 @@ This probe is **not integrated into strategy eligibility**; whole-book freshness
 always remains unverified. A real authenticated demo entitlement/timestamp test
 and reviewed per-level age model are still required. It does not grant permission
 to use a production credential or treat a send timestamp as quote-event time.
-Current implementation uses supported-but-deprecated `websockets.legacy` to
-match existing >=12 compatibility; a reviewed modern-client migration/pin and
-network acceptance test remain before deployment.
+The adapter now uses the modern `websockets.asyncio` client, pinned to reviewed
+version 17.4. Environment proxy discovery is disabled explicitly. All HTTP 3xx
+handshakes are rejected, including same-origin redirects and responses without
+Location; the adapter never returns a redirect URI or retries it. Offline tests
+exercise the actual modern handshake control path with TCP replaced, as well
+as deadline, cancellation and closure behavior. See
+`docs/modern-websocket-readiness.md`. No authenticated network acceptance test
+has run; demo entitlement and actual timestamp/whole-book freshness proof still
+remain before deployment. A version pin is not a security certification.
 
 ## Reconciliation and 400-market campaign
 
