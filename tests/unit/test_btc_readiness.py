@@ -119,6 +119,41 @@ async def test_cached_rollover_candidate_refreshed_without_relisting_or_strike_g
     c.close()
 
 
+@pytest.mark.asyncio
+async def test_invalid_intervals_cannot_consume_detail_refresh_budget(
+    tmp_path: Path, account: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    freeze(monkeypatch)
+    c = Collector(tmp_path / "detail-budget.db", account)
+    pending = copy.deepcopy(MARKET_DATA)
+    pending.pop("floor_strike")
+    invalid = [
+        {
+            **pending,
+            "ticker": f"KXBTC15M-000{i}-15",
+            "event_ticker": f"KXBTC15M-000{i}",
+            # Currently-open looking, but not a verified 15-minute interval.
+            "close_time": "2026-11-11T15:30:00Z",
+        }
+        for i in range(12)
+    ]
+    with respx.mock(assert_all_called=True) as api:
+        api.get(BASE + "/series/KXBTC15M").respond(
+            200, json={"series": SERIES_DATA}, headers=headers()
+        )
+        api.get(BASE + "/markets").respond(
+            200, json={"markets": [*invalid, pending], "cursor": ""}, headers=headers()
+        )
+        detail = api.get(BASE + "/markets/" + pending["ticker"]).respond(
+            200, json={"market": MARKET_DATA}, headers=headers()
+        )
+        async with KalshiClient("https://demo-api.kalshi.co") as client:
+            await c.discover(client._client)
+        assert detail.call_count == 1
+        assert len(c.active) == 1 and c.active[0].ticker == pending["ticker"]
+    c.close()
+
+
 def test_stale_quote_clears_all_actionable_diagnostics(
     tmp_path: Path, account: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

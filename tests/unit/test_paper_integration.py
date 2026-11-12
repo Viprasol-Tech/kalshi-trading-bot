@@ -15,6 +15,8 @@ from kalshi_bot.strategies.base import Strategy, StrategyContext
 from kalshi_bot.strategies.examples.market_maker import MarketMaker
 from kalshi_bot.strategies.examples.momentum import Momentum
 
+pytestmark = pytest.mark.usefixtures("offline_execution_fixture")
+
 
 class AlwaysBuy(Strategy):
     def on_market_data(self, ctx: StrategyContext) -> list[OrderRequest]:

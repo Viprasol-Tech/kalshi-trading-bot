@@ -10,6 +10,21 @@ class SimulationOnlyError(RuntimeError):
     """An operation conflicts with the simulation-only policy."""
 
 
+AUTOMATIC_EXECUTION_ENABLED = False
+
+
+def require_entry_release() -> None:
+    """Sealed release gate: no env var, model artifact or CLI flag can grant consent.
+
+    A later reviewed release must verify validation evidence and explicit paper
+    approval. This build intentionally implements no activation mechanism.
+    """
+    require_simulation()
+    raise SimulationOnlyError(
+        "Entries disabled: validation, release review and explicit paper approval required."
+    )
+
+
 def require_simulation(*, dry_run: bool = True) -> None:
     """Reject unsafe environment overrides even for direct library callers."""
     import os

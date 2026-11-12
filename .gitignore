@@ -38,6 +38,7 @@ data/*.jsonl
 data/*.csv
 data/*.lock
 data/*.zip
+data/*-snapshot.html
 data/*-report.md
 data/*-SHA256SUMS.txt
 logs/

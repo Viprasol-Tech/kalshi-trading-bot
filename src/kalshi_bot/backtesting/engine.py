@@ -133,7 +133,12 @@ class Backtester:
     def run(self, strategy: Strategy, snapshots: list[Market]) -> BacktestReport:
         """Run ``strategy`` over ``snapshots`` and return a full report."""
         report = BacktestReport(starting_balance_cents=self.starting_balance_cents)
-        broker = PaperBroker(":memory:", starting_cash=self.starting_balance_cents, risk=self.risk)
+        broker = PaperBroker(
+            ":memory:",
+            starting_cash=self.starting_balance_cents,
+            risk=self.risk,
+            offline_backtest=True,
+        )
         marks: dict[str, PaperQuote] = {}
         try:
             strategy.on_start()

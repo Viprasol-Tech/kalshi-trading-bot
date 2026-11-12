@@ -393,7 +393,10 @@ class Collector(Observer):
             # Keep actual provider candidates only, never synthesize a ticker.
             self.candidates = raw_candidates
             details = 0
-            for ticker, raw in sorted(raw_candidates.items()):
+            # Apply current, aligned interval / actual series identity checks
+            # BEFORE detail bounds, not just before quarantined-book requests.
+            # Invalid intervals must not consume the eight-detail rollover cap.
+            for ticker, raw in current_candidates(raw_candidates, time.time()):
                 try:
                     opens = utc_timestamp(raw["open_time"])
                     closes = utc_timestamp(raw["close_time"])

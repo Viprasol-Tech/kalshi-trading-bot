@@ -34,6 +34,8 @@ from tests.unit.test_btc import (
     synthetic_calibration_for_unit_tests,
 )
 
+pytestmark = pytest.mark.usefixtures("offline_execution_fixture")
+
 
 def frame(at: float = NOW, spot: float = 73700) -> dict[str, Any]:
     return {

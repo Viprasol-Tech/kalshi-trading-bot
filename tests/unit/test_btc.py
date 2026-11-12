@@ -33,6 +33,8 @@ from kalshi_bot.exchange.client import KalshiClient
 from kalshi_bot.exchange.models import Side
 from kalshi_bot.paper import PaperBroker, PaperQuote
 
+pytestmark = pytest.mark.usefixtures("offline_execution_fixture")
+
 OPEN = utc_timestamp("2026-11-11T15:00:00Z")
 NOW = OPEN + 600
 SERIES_DATA = {

@@ -30,7 +30,7 @@ from kalshi_bot.paper import (
     PaperBroker,
     PaperQuote,
 )
-from kalshi_bot.safety import require_simulation
+from kalshi_bot.safety import require_entry_release, require_simulation
 
 
 @dataclass(frozen=True)
@@ -155,6 +155,7 @@ class BTCPaperRunner:
         ]
 
     def _entry(self, market: VerifiedMarket, forecast: Estimate, choice: Entry, now: float) -> None:
+        require_entry_release()
         # Enforce a single logical entry across restarts, including cancelled/unfilled attempts.
         # This prevents re-entry orders from silently exceeding the $1 per-market trade budget.
         if self.db.execute("SELECT 1 FROM btc_entries WHERE ticker=?", (market.ticker,)).fetchone():

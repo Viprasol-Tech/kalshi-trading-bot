@@ -130,6 +130,36 @@ def paper_status() -> None:
         broker.close()
 
 
+@app.command("btc-dashboard")
+def btc_dashboard(
+    ledger: Path = typer.Option(Path("data/paper.db"), exists=True, dir_okay=False),
+    observations: Path | None = typer.Option(None, exists=True, dir_okay=False),
+    port: int = typer.Option(8765, min=1024, max=65535),
+) -> None:
+    """Serve a loopback-only read-only dashboard; never collect or submit orders."""
+    from kalshi_bot.btc_dashboard import serve
+
+    serve(ledger, observations, port=port)
+
+
+@app.command("btc-kill")
+def btc_kill(
+    reason: str = typer.Option(..., help="Reason for the persistent stop latch."),
+    journal: Path = typer.Option(Path("data/btc-auto-control.db")),
+) -> None:
+    """Arm the sticky stop latch. No reset, orders, collection or account mutation."""
+    import time
+
+    from kalshi_bot.btc_automation import ExecutionJournal
+
+    control = ExecutionJournal(journal)
+    try:
+        control.kill(reason, time.time())
+    finally:
+        control.close()
+    console.print("Kill switch armed. Entries remain disabled; no reset is available.")
+
+
 @app.command("btc-paper")
 def btc_paper(
     ticks: int = typer.Option(1, min=1, max=1800, help="Bounded paper polling cycles."),
@@ -141,6 +171,9 @@ def btc_paper(
     ),
 ) -> None:
     """Discover verified demo BTC 15-minute markets; never submit real orders."""
+    from kalshi_bot.safety import require_entry_release
+
+    require_entry_release()
     from kalshi_bot.btc_data import CoinbaseReference, DemoBTCSource
     from kalshi_bot.btc_model import CalibrationArtifact
     from kalshi_bot.btc_replay import append_observation
@@ -269,6 +302,9 @@ def run(
         raise typer.Exit(code=1)
 
     async def _run() -> None:
+        from kalshi_bot.safety import require_entry_release
+
+        require_entry_release()
         settings = load_settings()
         # Settings and both execution boundaries enforce simulation-only operation.
         dry_run = settings.dry_run

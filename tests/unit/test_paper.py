@@ -10,6 +10,8 @@ from kalshi_bot.paper import PaperBroker, PaperQuote
 from kalshi_bot.risk.manager import RiskLimits, RiskManager
 from kalshi_bot.safety import SimulationOnlyError
 
+pytestmark = pytest.mark.usefixtures("offline_execution_fixture")
+
 
 def buy(
     price: int = 40,

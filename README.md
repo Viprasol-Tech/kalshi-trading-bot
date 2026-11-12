@@ -4,13 +4,23 @@
 
 <h1 align="center">Kalshi Trading Bot</h1>
 
+> **Observation-only release lock (next phase).** All persistent paper submissions
+> and fills are now blocked at the broker, including direct library calls.
+> No environment variable, CLI flag or calibration artifact enables entries.
+> `btc-paper` and `run` fail before network access. Isolated in-memory synthetic
+> backtests remain available; they never touch the $50 account. A disabled
+> automatic opportunity planner, risk journal, fixed-cohort registry and local
+> read-only dashboard are implemented. They are **not an approved trading
+> release or a deployed collection service**. See
+> [the next-phase readiness report](docs/automatic-execution-readiness.md).
+>
 > **Simulation-only safety branch (Phases 1–3).** Live orders, production
 > configuration and exchange credentials are blocked, regardless of older
 > examples below. The paper account starts at $50 with a $1 maximum entry loss
 > including estimated fees. See [the simulation guide](docs/simulation-only.md)
 > for execution assumptions and limitations. The experimental BTC 15-minute
 > runner discovers demo markets but **blocks entries without matching observed
-> out-of-time calibration**. No validated calibration artifact or historical
+> out-of-time calibration** (the newer hard entry lock also applies). No validated calibration artifact or historical
 > BTC performance claim is included. See [Phase 3](docs/phase-3-btc.md).
 > [Phase 4's data audit and replay tools](docs/phase-4-validation.md) are implemented;
 > empirical historical trading performance remains **blocked by insufficient data**.

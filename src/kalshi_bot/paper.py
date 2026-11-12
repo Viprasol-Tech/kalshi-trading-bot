@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from kalshi_bot.exchange.models import Action, OrderRequest, Position, Side, TimeInForce
 from kalshi_bot.risk.manager import RiskManager
-from kalshi_bot.safety import require_simulation
+from kalshi_bot.safety import require_entry_release, require_simulation
 
 INITIAL_CASH = 5000
 MAX_TRADE_LOSS = 100
@@ -70,8 +70,12 @@ class PaperBroker:
         *,
         starting_cash: int = INITIAL_CASH,
         risk: RiskManager | None = None,
+        offline_backtest: bool = False,
     ) -> None:
         require_simulation()
+        if offline_backtest and str(path) != ":memory:":
+            raise ValueError("Offline backtests must use an isolated in-memory ledger.")
+        self._offline_backtest = offline_backtest
         if type(starting_cash) is not int or not 0 < starting_cash <= INITIAL_CASH:
             raise ValueError("Paper account must start with at most $50.")
         if str(path) != ":memory:":
@@ -226,6 +230,7 @@ class PaperBroker:
 
     def submit(self, order: OrderRequest, *, now: float | None = None) -> str | None:
         """Reserve funds only. Submission itself never creates a fill."""
+        self._require_entries()
         timestamp = self._now(now)
         # Revalidate even if a caller used pydantic's unchecked model_construct.
         order = OrderRequest.model_validate(order.model_dump())
@@ -315,6 +320,7 @@ class PaperBroker:
 
     def process_quote(self, quote: PaperQuote, *, now: float | None = None) -> int:
         """Fill at most 25% of depth, only on a later fresh quote. Return units."""
+        self._require_entries()
         timestamp = self._now(now)
         quote = PaperQuote.model_validate(quote.model_dump())
         with self._transaction():
@@ -498,6 +504,10 @@ class PaperBroker:
             bid = getattr(quote, row["side"] + "_bid") if quote is not None else None
             equity += row["quantity"] * max(0, (bid or 0) - SLIPPAGE_CENTS - FEE_PER_CONTRACT)
         return equity
+
+    def _require_entries(self) -> None:
+        if not self._offline_backtest:
+            require_entry_release()
 
     def rows(self, table: str) -> list[dict[str, Any]]:
         if table not in {"orders", "fills", "settlements", "events", "lots"}:
