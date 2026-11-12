@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from kalshi_bot.btc_model import MODEL_ID
+from kalshi_bot.btc_observe import book_fields
 from kalshi_bot.btc_rules import VerifiedMarket, utc_timestamp, verify_market, verify_series
 
 
@@ -64,10 +65,99 @@ def edge(probability: float, ask: Any) -> float | None:
     return probability - ask - fee - 0.01
 
 
-def evaluate(path: Path, *, as_of: float | None = None) -> dict[str, Any]:
+def executable_edges(chosen: dict[str, Any], at: float) -> dict[str, Any]:
+    """Conservative one-contract diagnostics, never an order or a fill.
+
+    Unknown event timestamps cannot establish executable freshness. Require
+    actual opposite-side depth, not a market summary ask or last trade.
+    """
+    result: dict[str, Any] = {
+        "strict_yes_net_edge": None,
+        "strict_no_net_edge": None,
+        "strict_execution_eligible": False,
+        "strict_edge_reason": None,
+        "strict_fee_reserve_dollars": 0.02,
+        "strict_slippage_dollars": 0.02,
+    }
+    try:
+        for key in ("book", "reference", "metadata"):
+            received = chosen[key + "_received_at"]
+            age = chosen[key + "_http_age_s"]
+            latency = chosen[key + "_latency_ms"]
+            if (
+                any(
+                    isinstance(x, bool) or not isinstance(x, (float, int)) or not math.isfinite(x)
+                    for x in (received, age, latency)
+                )
+                or not 0 <= at - received <= 5
+                or not -1 <= age <= 5
+                or not 0 <= latency <= 2000
+            ):
+                raise ValueError("Stale, future, missing or invalid transport evidence.")
+        if not chosen.get("reference_valid"):
+            raise ValueError("Reference invalid.")
+        stamp = chosen.get("quote_timestamp")
+        field = chosen.get("quote_timestamp_field")
+        raw_stamp = chosen.get("quote_timestamp_raw")
+        parsed_stamp = (
+            utc_timestamp(raw_stamp)
+            if isinstance(raw_stamp, str)
+            else float(raw_stamp)
+            if isinstance(raw_stamp, (float, int)) and not isinstance(raw_stamp, bool)
+            else None
+        )
+        if (
+            chosen.get("quote_timestamp_status") != "fresh"
+            or field
+            not in {
+                container + "." + key
+                for container in ("root", "orderbook_fp")
+                for key in ("quote_timestamp", "quote_ts", "orderbook_timestamp", "orderbook_ts")
+            }
+            or isinstance(stamp, bool)
+            or not isinstance(stamp, (int, float))
+            or not math.isfinite(stamp)
+            or parsed_stamp != stamp
+            or not 0 <= at - stamp <= 5
+            or not 0 <= chosen["book_received_at"] - stamp <= 5
+        ):
+            raise ValueError("Actual quote-event timestamp unavailable, invalid or stale.")
+        probability = chosen["yes_probability"]
+        if (
+            isinstance(probability, bool)
+            or not isinstance(probability, (float, int))
+            or not math.isfinite(probability)
+            or not 0 <= probability <= 1
+        ):
+            raise ValueError("Invalid diagnostic probability.")
+        book = book_fields({"orderbook_fp": chosen["raw_book"]})
+        any_side = False
+        for side, p in (("yes", probability), ("no", 1 - probability)):
+            ask, depth = book[side + "_ask"], book[side + "_ask_depth"]
+            if ask is None or depth < 1:
+                continue
+            if chosen.get(side + "_ask") != ask or chosen.get(side + "_ask_depth") != depth:
+                raise ValueError("Stored ask/depth disagrees with raw resting book.")
+            fee = max(0.02, math.ceil(0.07 * ask * (1 - ask) * 100 - 1e-12) / 100)
+            result["strict_" + side + "_net_edge"] = p - ask - fee - 0.02
+            any_side = True
+        if not any_side:
+            raise ValueError("No resting ask with at least one contract of depth.")
+        result["strict_execution_eligible"] = True
+    except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+        result["strict_yes_net_edge"] = result["strict_no_net_edge"] = None
+        result["strict_edge_reason"] = str(exc)
+    return result
+
+
+def evaluate(
+    path: Path, *, as_of: float | None = None, split_at: float | None = None
+) -> dict[str, Any]:
     as_of = time.time() if as_of is None else as_of
     if not math.isfinite(as_of) or as_of <= 0:
         raise ValueError("Invalid evaluation cutoff.")
+    if split_at is not None and (not math.isfinite(split_at) or not 0 < split_at < as_of):
+        raise ValueError("Invalid chronological boundary.")
     with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
         # Raw series evidence must match the same public demo contract family.
         series_rows = db.execute(
@@ -158,13 +248,18 @@ def evaluate(path: Path, *, as_of: float | None = None) -> dict[str, Any]:
                         if quote_usable
                         else None,
                         "reference_source": "Coinbase BTC-USD proxy, NOT official settlement",
+                        **executable_edges(chosen, at),
                     }
                 )
             except (ValueError, TypeError, KeyError) as exc:
                 excluded[ticker] = str(exc)
         eligible.sort(key=lambda r: (r["predicted_at"], r["ticker"]))
-        split = max(1, int(len(eligible) * 2 / 3))
-        development, test = eligible[:split], eligible[split:]
+        if split_at is None:
+            split = max(1, int(len(eligible) * 2 / 3))
+            development, test = eligible[:split], eligible[split:]
+        else:
+            development = [r for r in eligible if r["predicted_at"] < split_at]
+            test = [r for r in eligible if r["predicted_at"] >= split_at]
         known_prior = [
             r for r in development if test and r["confirmed_at"] < test[0]["predicted_at"]
         ]
@@ -174,7 +269,13 @@ def evaluate(path: Path, *, as_of: float | None = None) -> dict[str, Any]:
             "model_id": MODEL_ID,
             "read_only": True,
             "selection": "one nearest 300-second forecast per market, tolerance ±30s",
-            "split": "first floor(2N/3), minimum 1 development; remaining chronological test",
+            "split": (
+                "first floor(2N/3), minimum 1 development; remaining chronological test"
+                if split_at is None
+                else "fixed supplied UTC boundary; does not repartition as labels arrive"
+            ),
+            "split_at": split_at,
+            "prospective_registration_verified": False,
             "independent_markets": len(eligible),
             "excluded": excluded,
             "development_metrics": scores(development),
@@ -184,6 +285,15 @@ def evaluate(path: Path, *, as_of: float | None = None) -> dict[str, Any]:
             "entries_enabled": False,
             "calibration_ready": False,
             "fee_assumption": "M=1, ceil(0.07*ask*(1-ask)*100)/100 plus $0.01 slippage",
+            "legacy_edge_status": (
+                "Historical transport-fresh diagnostic, NOT proof of quote-event freshness "
+                "or executable depth. Retained for comparison, never activation."
+            ),
+            "strict_edge_assumption": (
+                "Actual quote-event age <=5s; book/reference/metadata transport <=5s "
+                "and latency <=2s; raw resting depth >=1; rounded M=1 fee with >=$0.02 "
+                "reserve plus $0.02 slippage. No fill assumption."
+            ),
             "limitations": [
                 "Diagnostic fixed-model evaluation, not a fitted or promoted calibration artifact.",
                 "All quotes are demo observations; Coinbase is not the CF BRTI settlement index.",
@@ -199,10 +309,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("database", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--split-at", type=utc_timestamp, help="Predeclared timezone-aware UTC boundary"
+    )
+    parser.add_argument(
+        "--as-of", type=utc_timestamp, help="Evaluate only labels known by this cutoff"
+    )
     args = parser.parse_args()
     if args.database.resolve() == args.output.resolve() or args.output.exists():
         raise ValueError("Evaluation output must be a new file separate from the database.")
-    args.output.write_text(json.dumps(evaluate(args.database), indent=2) + "\n")
+    result = evaluate(args.database, as_of=args.as_of, split_at=args.split_at)
+    args.output.write_text(json.dumps(result, indent=2) + "\n")
 
 
 if __name__ == "__main__":

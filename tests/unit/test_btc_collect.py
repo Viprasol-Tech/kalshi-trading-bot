@@ -132,6 +132,12 @@ async def test_detail_hydration_without_relaxing_strike_or_status(
             await collector.discover(client._client)
             assert len(collector.active) == 1
             assert collector.active[0].strike == MARKET_DATA["floor_strike"]
+            params = [
+                json.loads(r[0])
+                for r in collector.db.execute("SELECT parameters FROM request_parameters")
+            ]
+            assert any(p.get("max_close_ts") == int(NOW) + 1800 for p in params)
+            assert all(p.get("status") is None for p in params)
             # During backoff, no additional request.
             await collector.discover(client._client)
             assert listing.call_count == detail.call_count == 1
@@ -512,4 +518,14 @@ def test_chronological_validation_counts_markets_not_repeated_forecasts(
     assert path.read_bytes() == before
     earlier = evaluate(path, as_of=OPEN + 2 * 900 + 29)
     assert earlier["independent_markets"] == 1  # Second label not yet received.
+    fixed = evaluate(path, as_of=OPEN + 7 * 900, split_at=OPEN + 4 * 900)
+    assert fixed["development_metrics"]["independent_markets"] == 4
+    assert fixed["test_metrics"]["independent_markets"] == 2
+    partial = evaluate(path, as_of=OPEN + 5 * 900 + 31, split_at=OPEN + 4 * 900)
+    assert partial["development_metrics"]["independent_markets"] == 4
+    assert partial["test_metrics"]["independent_markets"] == 1
+    assert partial["test_metrics"]["baseline_probability_from_prior_labels"] == pytest.approx(5 / 6)
+    assert partial["prospective_registration_verified"] is False
+    with pytest.raises(ValueError, match="chronological"):
+        evaluate(path, as_of=OPEN + 7 * 900, split_at=OPEN + 8 * 900)
     collector.close()

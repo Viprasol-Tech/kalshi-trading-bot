@@ -1,5 +1,10 @@
 # BTC observation reliability and six-hour readiness
 
+> Historical pre-run report. The approved six-hour window subsequently completed
+> with one recovered host interruption. See
+> [post-run validation readiness](validation-readiness-20261112.md) for current
+> findings and blockers. No further collection or deployment is authorized.
+
 ## Decision
 
 The observation-only collector is ready for a bounded, guarded six-hour run,

@@ -30,6 +30,7 @@ import httpx
 from kalshi_bot.btc_model import ReferenceTick
 from kalshi_bot.btc_observe import Observer, book_fields, ledger_state
 from kalshi_bot.btc_rules import SERIES, VerifiedMarket, utc_timestamp, verify_market, verify_series
+from kalshi_bot.btc_validate import executable_edges
 from kalshi_bot.exchange.client import API_PREFIX, KalshiClient
 from kalshi_bot.safety import require_simulation
 
@@ -57,6 +58,7 @@ def implementation_fingerprint() -> str:
         "btc_observe.py",
         "btc_model.py",
         "btc_rules.py",
+        "btc_validate.py",
         "safety.py",
         "exchange/client.py",
     )
@@ -104,6 +106,28 @@ def classify_book(payload: dict[str, Any]) -> str:
     if no is None:
         return "yes_only"
     return "two_sided"
+
+
+def current_candidates(
+    candidates: dict[str, dict[str, Any]], now: float
+) -> list[tuple[str, dict[str, Any]]]:
+    """Filter before applying request caps; cached names are never synthesized."""
+    result = []
+    for ticker, raw in candidates.items():
+        try:
+            opens, closes = utc_timestamp(raw["open_time"]), utc_timestamp(raw["close_time"])
+            if (
+                ticker == raw["ticker"]
+                and str(raw["event_ticker"]).startswith(SERIES + "-")
+                and ticker.startswith(str(raw["event_ticker"]) + "-")
+                and opens <= now < closes
+                and closes - opens == 900
+                and opens % 900 == 0
+            ):
+                result.append((ticker, raw))
+        except (ValueError, KeyError, TypeError, OverflowError):
+            continue
+    return sorted(result, key=lambda item: (utc_timestamp(item[1]["close_time"]), item[0]))
 
 
 def _lock(path: Path) -> BinaryIO:
@@ -156,6 +180,7 @@ class Collector(Observer):
         self.request_errors: dict[str, int] = {}
         self.current_quotes: dict[str, dict[str, Any]] = {}
         self.candidates: dict[str, dict[str, Any]] = {}
+        self.next_listing = 0.0
         self.stop_reason: str | None = None
         try:
             if resume:
@@ -228,6 +253,10 @@ class Collector(Observer):
                     "implementation_fingerprint": implementation_fingerprint(),
                 }
                 self.set_run("manifest", self.manifest)
+            self.db.execute(
+                "CREATE TABLE IF NOT EXISTS request_parameters "
+                "(request_id INTEGER PRIMARY KEY REFERENCES requests(id), parameters TEXT NOT NULL)"
+            )
             self.db.commit()
             self.db.execute("PRAGMA synchronous=FULL")
             self.db.execute("PRAGMA busy_timeout=5000")
@@ -280,6 +309,11 @@ class Collector(Observer):
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         result = await super().get(client, provider, path, params)
+        self.db.execute(
+            "INSERT INTO request_parameters VALUES(last_insert_rowid(),?)",
+            (json.dumps(params or {}, sort_keys=True),),
+        )
+        self.db.commit()
         self.request_errors[provider] = (
             self.request_errors.get(provider, 0) + 1 if result["error"] else 0
         )
@@ -321,9 +355,12 @@ class Collector(Observer):
                 raise ValueError("Series unavailable or stale.")
             self.series = response["body"]["series"]
             verify_series(self.series)
+            cached = bool(current_candidates(self.candidates, time.time())) and (
+                time.monotonic() < self.next_listing
+            )
             cursor, seen = "", set()
-            raw_candidates: dict[str, dict[str, Any]] = {}
-            for _ in range(10):
+            raw_candidates: dict[str, dict[str, Any]] = dict(self.candidates) if cached else {}
+            for _ in range(0 if cached else 10):
                 page = await self.get(
                     client,
                     "kalshi-demo",
@@ -332,6 +369,7 @@ class Collector(Observer):
                         "series_ticker": SERIES,
                         "limit": 100,
                         "min_close_ts": int(time.time()),
+                        "max_close_ts": int(time.time()) + 1800,
                         "cursor": cursor,
                     },
                 )
@@ -348,7 +386,10 @@ class Collector(Observer):
                     raise ValueError("Discovery pagination loop.")
                 seen.add(cursor)
             else:
-                raise ValueError("Discovery pagination exceeded bound.")
+                if not cached:
+                    raise ValueError("Discovery pagination exceeded bound.")
+            if not cached:
+                self.next_listing = time.monotonic() + 30
             # Keep actual provider candidates only, never synthesize a ticker.
             self.candidates = raw_candidates
             details = 0
@@ -362,6 +403,8 @@ class Collector(Observer):
                         )
                         continue
                     try:
+                        if cached:
+                            raise ValueError("Cached candidate requires fresh detail verification.")
                         market = verify_market(raw, self.series, now=time.time())
                     except (ValueError, KeyError, TypeError):
                         if details >= 8:
@@ -452,6 +495,18 @@ class Collector(Observer):
         if times["quote_timestamp_status"] == "invalid_or_stale":
             stale, valid = True, False
             payload.setdefault("errors", []).append("Explicit quote timestamp invalid/stale.")
+            for key in (
+                "yes_net_edge",
+                "no_net_edge",
+                "minimum_haircut_yes_edge",
+                "minimum_haircut_no_edge",
+            ):
+                payload[key] = None
+            payload["paper_quote_eligible"] = False
+        if times["quote_timestamp_status"] != "fresh":
+            payload["paper_quote_eligible"] = False
+        payload.update(executable_edges(payload, at))
+        payload["legacy_edges_diagnostic_only"] = True
         payload["transport_and_reference_valid"] = valid
         # Valid provider/reference + one-sided book is useful observation data,
         # but is NEVER a complete or executable two-sided quote.
@@ -474,16 +529,7 @@ class Collector(Observer):
     async def cycle(self, kalshi: httpx.AsyncClient, coinbase: httpx.AsyncClient) -> None:
         await super().cycle(kalshi, coinbase)
         if not any(m.opens_at <= time.time() < m.closes_at for m in self.active):
-            for ticker, metadata in list(self.candidates.items())[:8]:
-                try:
-                    if (
-                        not utc_timestamp(metadata["open_time"])
-                        <= time.time()
-                        < utc_timestamp(metadata["close_time"])
-                    ):
-                        continue
-                except (KeyError, ValueError, TypeError):
-                    continue
+            for ticker, metadata in current_candidates(self.candidates, time.time())[:8]:
                 result = await self.get(
                     kalshi,
                     "kalshi-demo",
