@@ -136,6 +136,7 @@ def current_candidates(
             opens, closes = utc_timestamp(raw["open_time"]), utc_timestamp(raw["close_time"])
             if (
                 ticker == raw["ticker"]
+                and raw.get("status") in ("active", "open")
                 and str(raw["event_ticker"]).startswith(SERIES + "-")
                 and ticker.startswith(str(raw["event_ticker"]) + "-")
                 and opens <= now < closes

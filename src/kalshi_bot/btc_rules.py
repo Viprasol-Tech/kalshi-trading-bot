@@ -63,6 +63,30 @@ class VerifiedMarket:
     strike: float
     rules_sha256: str
     rule_family: str = RULE_FAMILY
+    administrative_expiration_field: str = "expiration_time"
+
+
+def administrative_expiration(raw: dict[str, Any]) -> tuple[float, str]:
+    """Explicit administrative bound, never expected expiry or trading close.
+
+    Current Get Market schema defines latest_expiration_time as the latest
+    possible expiry and deprecates expiration_time. Require agreement when both
+    are present; retain the actual source field instead of rewriting raw data.
+    """
+    fields = {
+        key: utc_timestamp(value)
+        for key in ("expiration_time", "latest_expiration_time")
+        if (value := raw.get(key)) is not None and isinstance(value, str) and value
+    }
+    for key in ("expiration_time", "latest_expiration_time"):
+        if raw.get(key) is not None and key not in fields:
+            raise ValueError("Invalid administrative expiration field.")
+    if not fields:
+        raise ValueError("Missing administrative expiration; expected expiry is not a bound.")
+    if len(set(fields.values())) != 1:
+        raise ValueError("Conflicting administrative expiration fields.")
+    field = "latest_expiration_time" if "latest_expiration_time" in fields else "expiration_time"
+    return fields[field], field
 
 
 def verify_series(series: dict[str, Any]) -> None:
@@ -86,6 +110,8 @@ def verify_market(
     finalized: bool = False,
 ) -> VerifiedMarket:
     verify_series(series)
+    if raw.get("status") != ("finalized" if finalized else "active"):
+        raise ValueError("Market lifecycle status is not eligible.")
     primary = raw.get("rules_primary", "")
     match = re.fullmatch(
         r"If the simple average of the sixty seconds of CF Benchmarks' BRTI before (.+) "
@@ -98,7 +124,7 @@ def verify_market(
     close_rule, open_rule = map(_rule_time, match.groups())
     opens = utc_timestamp(raw["open_time"])
     closes = utc_timestamp(raw["close_time"])
-    expiration = utc_timestamp(raw["expiration_time"])
+    expiration, expiration_field = administrative_expiration(raw)
     try:
         strike_decimal = Decimal(str(raw["floor_strike"]))
     except InvalidOperation as exc:
@@ -129,4 +155,12 @@ def verify_market(
     ):
         raise ValueError("Unverified market metadata, strike, status or expiry.")
     digest = hashlib.sha256((primary + "\n" + SECONDARY).encode()).hexdigest()
-    return VerifiedMarket(ticker, opens, closes, expiration, float(strike_decimal), digest)
+    return VerifiedMarket(
+        ticker,
+        opens,
+        closes,
+        expiration,
+        float(strike_decimal),
+        digest,
+        administrative_expiration_field=expiration_field,
+    )

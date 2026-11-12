@@ -91,11 +91,14 @@ class DemoBookSession:
         self.sid: int | None = None
         self.books: dict[str, dict[str, dict[Decimal, Decimal]]] = {}
         self.clocks: dict[str, int] = {}
+        self.snapshot_clocks: dict[str, int] = {}
+        self.last_received: float | None = None
+        self.last_monotonic: float | None = None
         self.failed = False
 
     @staticmethod
     def integer(value: Any) -> int:
-        if type(value) is not int or value < 0:
+        if type(value) is not int or not 0 <= value < 2**63:
             raise ValueError("Invalid exchange sequence, clock or timestamp.")
         return value
 
@@ -104,12 +107,21 @@ class DemoBookSession:
             if self.failed:
                 raise ValueError("Session already invalidated.")
             if (
-                not math.isfinite(received_at)
+                type(received_at) not in (int, float)
+                or type(monotonic) not in (int, float)
+                or not math.isfinite(received_at)
                 or received_at <= 0
                 or not math.isfinite(monotonic)
                 or monotonic < 0
             ):
                 raise ValueError("Invalid receive clocks.")
+            if self.last_received is not None and self.last_monotonic is not None:
+                wall_elapsed = received_at - self.last_received
+                mono_elapsed = monotonic - self.last_monotonic
+                if wall_elapsed < 0 or mono_elapsed < 0 or abs(wall_elapsed - mono_elapsed) > 2:
+                    raise ValueError("Receive clock regression or discontinuity.")
+            if not isinstance(raw, dict) or not isinstance(raw.get("msg"), dict):
+                raise ValueError("Malformed book envelope.")
             kind = raw["type"]
             if kind not in ("orderbook_snapshot", "orderbook_delta"):
                 raise ValueError("Only public book messages are accepted.")
@@ -128,31 +140,41 @@ class DemoBookSession:
             if kind == "orderbook_snapshot":
                 book: dict[str, dict[Decimal, Decimal]] = {"yes": {}, "no": {}}
                 for side in ("yes", "no"):
-                    for level in msg.get(side + "_dollars_fp", []):
+                    levels = msg.get(side + "_dollars_fp", [])
+                    if not isinstance(levels, list) or len(levels) > 10000:
+                        raise ValueError("Invalid/beyond-bound snapshot levels.")
+                    for level in levels:
                         if not isinstance(level, list) or len(level) != 2:
                             raise ValueError("Invalid level.")
+                        if any(not isinstance(v, str) for v in level):
+                            raise ValueError("Fixed-point levels must be strings.")
                         p, q = Decimal(level[0]), Decimal(level[1])
                         if (
                             not p.is_finite()
                             or not q.is_finite()
                             or not 0 < p < 1
-                            or q <= 0
+                            or not 0 < q <= Decimal("1e12")
                             or p in book[side]
                         ):
                             raise ValueError("Invalid price/depth.")
                         book[side][p] = q
                 self.books[ticker] = book
+                self.snapshot_clocks[ticker] = clock
             else:
                 if ticker not in self.books:
                     raise ValueError("Delta before snapshot.")
+                if clock <= self.snapshot_clocks[ticker]:
+                    raise ValueError("Delta clock must be after its replacement snapshot.")
                 side = msg["side"]
                 if side not in ("yes", "no"):
                     raise ValueError("Unknown side.")
+                if any(not isinstance(msg[k], str) for k in ("price_dollars", "delta_fp")):
+                    raise ValueError("Fixed-point delta must use strings.")
                 p, delta = Decimal(msg["price_dollars"]), Decimal(msg["delta_fp"])
                 if not p.is_finite() or not delta.is_finite() or not 0 < p < 1:
                     raise ValueError("Invalid delta.")
                 level_qty = self.books[ticker][side].get(p, Decimal(0)) + delta
-                if level_qty < 0:
+                if not 0 <= level_qty <= Decimal("1e12"):
                     raise ValueError("Negative resting depth.")
                 if level_qty:
                     self.books[ticker][side][p] = level_qty
@@ -162,6 +184,12 @@ class DemoBookSession:
                     event_at, field = self.integer(msg["ts_ms"]) / 1000, "msg.ts_ms"
                 elif msg.get("ts") is not None:
                     event_at, field = utc_timestamp(msg["ts"]), "msg.ts"
+                if (
+                    msg.get("ts_ms") is not None
+                    and msg.get("ts") is not None
+                    and utc_timestamp(msg["ts"]) != event_at
+                ):
+                    raise ValueError("Conflicting delta event timestamps.")
             sending = raw.get("sending_ts_ms")
             sending_at = self.integer(sending) / 1000 if sending is not None else None
             if event_at is not None and (
@@ -176,6 +204,7 @@ class DemoBookSession:
             if sides["yes"] and sides["no"] and max(sides["yes"]) + max(sides["no"]) > 1:
                 raise ValueError("Crossed complementary book.")
             self.sid, self.seq, self.clocks[ticker] = sid, seq, clock
+            self.last_received, self.last_monotonic = received_at, monotonic
             return QuoteEvent(
                 ticker,
                 sid,
@@ -189,9 +218,11 @@ class DemoBookSession:
                 monotonic,
                 event_at is not None and 0 <= received_at - event_at <= 5,
             )
-        except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+        except (ValueError, TypeError, KeyError, AttributeError, ArithmeticError) as exc:
             self.failed = True
             self.books.clear()
+            self.clocks.clear()
+            self.snapshot_clocks.clear()
             raise ResnapshotRequired(
                 "Book session invalid; reconnect and replace all books."
             ) from exc

@@ -14,9 +14,20 @@ from urllib.parse import quote
 
 from kalshi_bot.btc_collect import quote_timestamp
 from kalshi_bot.btc_observe import book_fields
+from kalshi_bot.btc_rules import utc_timestamp
 from kalshi_bot.exchange.client import KalshiClient
 from kalshi_bot.multi_market import CATEGORY_NAMES, Book, Category, Contract, PaperEngine, canonical
 from kalshi_bot.safety import SimulationOnlyError, require_simulation
+
+
+def current_listing(raw: dict[str, Any], *, now: float) -> bool:
+    """Untrusted query filters never override lifecycle or explicit UTC times."""
+    try:
+        return raw.get("status") in ("active", "open") and utc_timestamp(
+            raw["open_time"]
+        ) <= now < utc_timestamp(raw["close_time"])
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return False
 
 
 class MultiFeed:
@@ -114,9 +125,22 @@ class MultiFeed:
                 PARTITION BY lookup_prefix ORDER BY checked,ticker) AS rn FROM base
             )
             SELECT r.* FROM ranked r LEFT JOIN mm_series_seen s ON s.prefix=r.lookup_prefix
-            ORDER BY r.rn,COALESCE(s.at,0),r.checked,r.ticker LIMIT 6
-        """).fetchall()
+            ORDER BY r.rn,COALESCE(s.at,0),r.checked,r.ticker
+        """)
+        # Reject expired/closed cached listings BEFORE the six-detail cap, not
+        # only after spending event/series/detail requests on them.
+        candidates: list[Any] = []
         for row in rows:
+            if len(candidates) == 6:
+                break
+            if not current_listing(json.loads(row["raw"]), now=time.time()):
+                self.db.execute(
+                    "UPDATE mm_candidates SET checked=?,reason=? WHERE ticker=?",
+                    (time.time(), "catalog_not_currently_active", row["ticker"]),
+                )
+            else:
+                candidates.append(row)
+        for row in candidates:
             category = None
             prefix = ""
             try:
