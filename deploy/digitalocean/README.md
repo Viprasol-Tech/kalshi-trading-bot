@@ -1,5 +1,20 @@
 # DigitalOcean offline hosting package — NOT DEPLOYED
 
+## Multi-market extension — still unreleased
+
+`multi-market-proposal.json` is a plan, not an activation switch. The new engine
+uses an isolated `multi-paper.db`; backup/restore now includes that optional file.
+Do not run the legacy BTC paper dispatcher alongside it: the legacy dispatcher
+remains sealed and the BTC 400-market supervisor remains observation-only.
+The new shared policy caps pending plus held markets at three, one per category
+and correlated group, with $2 daily gross losses **including all open risk**.
+The new mobile UI is available as a loopback-only `multi-dashboard` command.
+No public endpoint or service has been deployed. Its private authenticated
+proxy, runtime account permissions, atomic read-only status export if mounting
+read-only SQLite storage, and actual host acceptance still need deployment review.
+No model registry entry is released; there is no config/environment flag that
+makes a category validated. See `docs/multi-market-readiness.md` for limitations.
+
 This continues the existing Python repository. Nothing here buys a VPS, opens a
 port, creates provider accounts, installs a system service, starts collection or
 activates paper/live orders. Do not run installation or network commands until

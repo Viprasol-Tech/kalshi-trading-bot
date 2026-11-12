@@ -37,6 +37,60 @@ app = typer.Typer(
 )
 console = Console()
 
+
+@app.command("multi-status")
+def multi_status(
+    ledger: Path = typer.Option(Path("data/multi-paper.db"), dir_okay=False),
+) -> None:
+    """Read-only multi-category status; never initialize an absent account."""
+    from kalshi_bot.multi_dashboard import snapshot
+
+    console.print_json(data=snapshot(ledger))
+
+
+@app.command("multi-dashboard")
+def multi_dashboard(
+    ledger: Path = typer.Option(Path("data/multi-paper.db"), exists=True, dir_okay=False),
+    port: int = typer.Option(8766, min=1024, max=65535),
+) -> None:
+    """Loopback-only read-only UI; no deployment, public listener or start button."""
+    from kalshi_bot.multi_dashboard import serve
+
+    serve(ledger, port=port)
+
+
+@app.command("multi-kill")
+def multi_kill(
+    ledger: Path = typer.Option(Path("data/multi-paper.db"), exists=True, dir_okay=False),
+) -> None:
+    """Persist emergency shutdown, cancel unfilled paper orders, retain inventory."""
+    import time
+
+    from kalshi_bot.multi_market import PaperEngine
+
+    engine = PaperEngine(ledger)
+    try:
+        engine.shutdown(now=time.time(), reason="operator emergency shutdown")
+    finally:
+        engine.close()
+
+
+@app.command("multi-paper-run")
+def multi_paper_run(
+    ledger: Path = typer.Option(Path("data/multi-paper.db"), exists=True, dir_okay=False),
+    seconds: int = typer.Option(300, min=1, max=21600),
+) -> None:
+    """Future bounded demo-data paper loop; unavailable models/kill block before IO."""
+    from kalshi_bot.multi_feed import run as run_multi
+    from kalshi_bot.multi_market import PaperEngine
+
+    engine = PaperEngine(ledger)
+    try:
+        asyncio.run(run_multi(engine, seconds=seconds))
+    finally:
+        engine.close()
+
+
 STRATEGIES: dict[str, type[Strategy]] = {
     "market_maker": MarketMaker,
     "momentum": Momentum,

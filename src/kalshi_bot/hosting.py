@@ -22,7 +22,7 @@ from typing import Any
 from kalshi_bot.btc_dashboard import connect_readonly, snapshot
 from kalshi_bot.safety import require_simulation
 
-DB_NAMES = ("paper.db", "btc-auto-control.db", "observations.db", "campaign.db")
+DB_NAMES = ("paper.db", "btc-auto-control.db", "observations.db", "campaign.db", "multi-paper.db")
 
 
 def sync_dir(path: Path) -> None:
