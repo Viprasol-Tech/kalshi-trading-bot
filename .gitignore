@@ -35,6 +35,11 @@ data/*.db-shm
 data/*.parquet
 data/*.json
 data/*.jsonl
+data/*.csv
+data/*.lock
+data/*.zip
+data/*-report.md
+data/*-SHA256SUMS.txt
 logs/
 *.log
 
