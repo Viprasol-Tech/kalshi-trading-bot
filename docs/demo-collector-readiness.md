@@ -135,6 +135,20 @@ Upstream fork-run approval remains a separate maintainer control; this account
 does not have upstream admin/maintain/push permission. The PR's latest run links
 and final chat report distinguish actual hosted results from local passes.
 
+Fork Actions registration was repaired using a temporary manual-only validator,
+then that validator was removed. The default branch tree was verified identical
+to its original tree: no bot code was merged and no deployment ran. Push CI now
+actually starts on the guarded feature branch; manual dispatch is also available.
+The first hosted attempt exposed the Windows portability bugs described above.
+The next attempt passed Linux 3.11/3.12/3.13 and lint but could not acquire any
+Windows/macOS runner, so its cancelled matrix jobs were **not passes**. The matrix
+still tests all three OS families and three Python versions, now using standard
+`windows-2022` and `macos-15-intel` pools to avoid the failed latest-runner pools.
+GitHub lists these as free standard runners for public repositories:
+https://docs.github.com/en/actions/reference/runners/github-hosted-runners .
+Runner availability still has no guarantee; do not treat a provisioning failure
+as a tested application failure, or an unstarted job as verified.
+
 ## Exact next steps from an iPhone
 
 1. Open the existing draft PR and its actual CI links. Resolve failures and obtain
