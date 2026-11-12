@@ -40,7 +40,7 @@
   <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue?style=flat-square&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/typed-mypy%20strict-2a6db2?style=flat-square&logo=python&logoColor=white" alt="mypy strict">
   <img src="https://img.shields.io/badge/code%20style-ruff-000000?style=flat-square&logo=ruff&logoColor=white" alt="Ruff">
-  <img src="https://img.shields.io/badge/tests-181%20passing-brightgreen?style=flat-square&logo=pytest&logoColor=white" alt="Tests">
+  <img src="https://img.shields.io/badge/offline_tests-261%20passing-brightgreen?style=flat-square&logo=pytest&logoColor=white" alt="Local offline tests">
   <img src="https://img.shields.io/badge/version-0.2.0-purple?style=flat-square" alt="Version">
   <a href="https://t.me/viprasol_help"><img src="https://img.shields.io/badge/Telegram-support-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram"></a>
   <a href="https://github.com/Viprasol-Tech/kalshi-trading-bot/stargazers"><img src="https://img.shields.io/github/stars/Viprasol-Tech/kalshi-trading-bot?style=flat-square&logo=github" alt="Stars"></a>
@@ -102,8 +102,9 @@ kalshi-bot strategies
 # Public market data needs no credentials either:
 kalshi-bot markets --status open --limit 10
 
-# Dry-run a live strategy (no real orders are sent):
-kalshi-bot run momentum INXD-23DEC29-B5000 --ticks 5
+# Read-only local dashboard after the existing paper ledger has been provisioned:
+kalshi-bot btc-dashboard --ledger data/paper.db
+# run and btc-paper are intentionally locked, including simulated entries.
 ```
 
 A backtest prints a metrics table like this:
@@ -233,7 +234,23 @@ mypy src
 pytest
 ```
 
-The project is **mypy-strict** and ships **56 tests** covering auth, models, risk, all five strategies, the backtester (fills, PnL, fees, risk gating), the metrics, the config, and the CLI.
+The project is **mypy-strict**. This disabled branch passed **261 local offline
+tests**, including execution locks, rollover discovery, prospective cohort
+scoring and read-only dashboard checks. This is not a hosted CI result or
+empirical BTC profitability evidence.
+
+For a separately approved future observation campaign, the read-only staging
+evaluator is available as:
+
+```bash
+python -m kalshi_bot.btc_campaign_validate data/campaign.db \
+  --output data/campaign-evaluation.json
+```
+
+It never creates a campaign, collects data or enables entries. Test scores stay
+sealed until the manifest's original deadline; selection scores stay sealed
+until its test boundary. Explicit offline cutoffs are not external wall-clock
+attestations. Registry-only provenance and executable net edges remain unverified.
 
 ## 🗺️ Roadmap
 
@@ -252,8 +269,9 @@ The project is **mypy-strict** and ships **56 tests** covering auth, models, ris
 ## ❓ FAQ
 
 **Does this place real trades out of the box?**
-No. This branch permits **paper execution only**. `--live`, production settings,
-and exchange credentials are rejected, and exchange write operations are blocked.
+No. This branch blocks **both real orders and persistent simulated entries**.
+`--live`, production settings and exchange credentials are rejected. Only isolated
+in-memory synthetic backtests execute; the $50 paper account is not traded.
 
 **Do I need a Kalshi account to try it?**
 No. `kalshi-bot backtest` and the examples run fully offline on synthetic data, and `kalshi-bot markets` reads public data without credentials.

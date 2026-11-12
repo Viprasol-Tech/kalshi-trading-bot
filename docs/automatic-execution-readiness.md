@@ -46,6 +46,16 @@ zero orders/fills, zero fees and zero realized P&L.
   tested. Pending/late pre-test labels are explicitly reported as leakage risk.
   A registry record is not evidence of collection approval, external
   preregistration or data provenance; those remain explicitly unverified.
+- A read-only prospective staging evaluator now verifies the manifest fingerprint,
+  rechecks fixed cohorts/horizons and declared evidence, reports label availability
+  at a cutoff, and excludes late pre-test labels from scoring/baselines. Selection
+  scores stay sealed until the test boundary and final-test scores until the
+  original campaign deadline. Fixed five-bin ECE, Brier score and log loss are
+  reported without fitting or promotion; the test baseline uses only earlier
+  development labels. Declared hashes do not authenticate provider evidence,
+  and an explicitly supplied offline cutoff is not external time attestation.
+  It cannot compute executable edges or snapshot coverage from registry hashes
+  alone, so those fields remain unavailable.
 - Read-only local dashboard with probability diagnostics for both sides,
   strict net edges and blocking reasons, cash bankroll, realized P&L, fill log,
   settled filled-market win rate, recorded equity drawdown and archive coverage.
@@ -221,13 +231,27 @@ it does not modify bankroll or orders, promise hosting shutdown, or liquidate
 positions. There are presently no orders/positions to cancel. All actual
 submission/fill paths remain locked regardless of the latch.
 
+After a separately approved campaign has supplied a verified registry:
+
+```sh
+KALSHI_ENVIRONMENT=demo KALSHI_DRY_RUN=true \
+  python -m kalshi_bot.btc_campaign_validate data/campaign.db \
+  --output data/campaign-evaluation.json
+```
+
+This command opens the existing registry read-only and exclusively creates a
+new output file. Missing input is never created; existing output is never
+overwritten. It never starts collection, changes the account, exports a
+calibration artifact or enables entries. No real campaign registry was created
+or scored in this phase; synthetic fixtures are not market observations.
+
 The companion HTML snapshot is an actual archive/ledger rendering, not a live
 feed or a substitute for the included dashboard server. No performance series
 or trades have been fabricated to populate it.
 
 ## Verification and release decision
 
-245 offline tests passed; Ruff lint/format, strict Mypy over 43 source files
+261 offline tests passed; Ruff lint/format, strict Mypy over 44 source files
 and diff-whitespace checks passed. A 200-tick isolated synthetic momentum
 regression completed (-$0.48 hypothetical net P&L); it is not BTC strategy
 evidence and did not modify the persistent account. The model, archive and
@@ -241,6 +265,9 @@ deduplication/global exposure, daily gross-loss budgets, sticky kills, fixed
 cohorts, conflicting labels, backup restore and read-only dashboard behavior.
 Legacy simulator tests explicitly use a test-only fixture; runtime has no such
 override. Only explicitly isolated in-memory synthetic backtests remain usable.
+The additional 16 prospective-scoring tests cover sealing, fixed-deadline
+unsealing, exact scores, prior-only baselines, delayed labels, corrupt evidence,
+invalid cutoffs, missing input and read-only behavior.
 
 This is **implemented staging and a dashboard, not a completed validated
 automatic trader**. The collection supervisor/durable remote adapter, actual
