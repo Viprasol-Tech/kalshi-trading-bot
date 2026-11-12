@@ -1,8 +1,10 @@
 """Observation-only collection tests use isolated accounts and mocked public reads."""
 
+import asyncio
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -40,7 +42,27 @@ async def test_observer_does_not_mutate_account_or_construct_orders(
     ledger = tmp_path / "paper.db"
     PaperBroker(ledger).close()
     before = btc_observe.ledger_state(ledger)
-    monkeypatch.setattr(btc_observe.time, "time", lambda: NOW)
+    clock = SimpleNamespace(elapsed=0.0)
+    monkeypatch.setattr(
+        btc_observe,
+        "time",
+        SimpleNamespace(time=lambda: NOW, monotonic=lambda: clock.elapsed),
+    )
+
+    async def advance(delay: float) -> None:
+        assert delay == 5
+        clock.elapsed += delay
+        await asyncio.sleep(0)
+
+    # Module-private time, not global time/asyncio patches. No production
+    # deadline is moved to accommodate slow TLS setup or filesystem startup.
+    monkeypatch.setattr(
+        btc_observe,
+        "asyncio",
+        SimpleNamespace(
+            wait_for=asyncio.wait_for, sleep=advance, CancelledError=asyncio.CancelledError
+        ),
+    )
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Observation-only code must not trade.")
@@ -88,7 +110,8 @@ async def test_observer_does_not_mutate_account_or_construct_orders(
         )
         # Explicit test-only launch permission; network remains mocked/forbidden.
         monkeypatch.setattr(btc_observe, "require_collection_release", lambda: None)
-        report = await btc_observe.run_capture(0.2, 1, tmp_path / "observations.db", ledger)
+        report = await btc_observe.run_capture(5, 5, tmp_path / "observations.db", ledger)
+    assert clock.elapsed == 5
     assert report["status"] == "completed"
     assert report["valid_observations"] == 1
     assert report["entries_enabled"] is False

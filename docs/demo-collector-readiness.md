@@ -114,7 +114,8 @@ receipt recovery/corruption, timestamp/strike rejection, source timeout logging,
 sealed launches and isolated YES/NO entry/exit lifecycle drills. Strict Mypy on
 50 source/wrapper files, Ruff lint/format and 87% total statement coverage passed.
 Local restic/Caddy/systemd drills ran; deprecation/resource warnings remain.
-All network sockets remain forbidden in tests. Execution permission is patched
+External sockets and arbitrary localhost connections remain forbidden in tests.
+Execution permission is patched
 only inside explicit temporary fixtures, never in runtime code.
 
 Actual hosted testing exposed Windows-only issues in the test event loop and
@@ -122,6 +123,12 @@ backup file flushing. The fixes permit only CPython's internal loopback socketpa
 by exact code identity (other localhost/external sockets remain blocked), and use
 writable handles to flush created backup copies, never the source ledger. Eight
 regression tests were added; hosted results are tracked separately from local runs.
+
+Windows 3.13 then passed hosted tests. Older Windows jobs exposed a wall-clock
+race in the legacy account-preservation fixture: TLS/client startup could consume
+its 0.2-second window before any mocked request. That fixture now uses its own
+clock/sleeper to exercise one bounded cycle without modifying global clocks or
+production deadlines. All mocked reads remain mandatory; no assertions were removed.
 
 The actual account is still $50 with zero orders, fills, fees and realized P&L.
 Its logical digest is unchanged:
