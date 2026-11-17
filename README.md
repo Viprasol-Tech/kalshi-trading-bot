@@ -170,10 +170,16 @@ class BuyCheapYes(Strategy):
     def on_market_data(self, ctx: StrategyContext) -> list[OrderRequest]:
         m = ctx.market
         if m.yes_ask is not None and m.yes_ask < 20 and ctx.position_for(m.ticker) == 0:
-            return [OrderRequest(
-                ticker=m.ticker, action=Action.BUY, side=Side.YES,
-                count=1, type=OrderType.LIMIT, yes_price=m.yes_ask,
-            )]
+            return [
+                OrderRequest(
+                    ticker=m.ticker,
+                    action=Action.BUY,
+                    side=Side.YES,
+                    count=1,
+                    type=OrderType.LIMIT,
+                    yes_price=m.yes_ask,
+                )
+            ]
         return []
 ```
 
@@ -186,9 +192,10 @@ from kalshi_bot.backtesting.data import random_walk_snapshots
 from kalshi_bot.backtesting.engine import Backtester
 from kalshi_bot.strategies.examples.mean_reversion import MeanReversion
 
-snapshots = random_walk_snapshots(n=250, seed=42)          # offline, deterministic
+snapshots = random_walk_snapshots(n=250, seed=42)  # offline, deterministic
 report = Backtester(starting_balance_cents=100_000, fee_cents_per_contract=1).run(
-    MeanReversion(window=20, z=1.5), snapshots,
+    MeanReversion(window=20, z=1.5),
+    snapshots,
 )
 
 print(report.summary())

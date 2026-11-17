@@ -16,10 +16,16 @@ class BuyCheapYes(Strategy):
     def on_market_data(self, ctx: StrategyContext) -> list[OrderRequest]:
         m = ctx.market
         if m.yes_ask is not None and m.yes_ask < 20 and ctx.position_for(m.ticker) == 0:
-            return [OrderRequest(
-                ticker=m.ticker, action=Action.BUY, side=Side.YES,
-                count=1, type=OrderType.LIMIT, yes_price=m.yes_ask,
-            )]
+            return [
+                OrderRequest(
+                    ticker=m.ticker,
+                    action=Action.BUY,
+                    side=Side.YES,
+                    count=1,
+                    type=OrderType.LIMIT,
+                    yes_price=m.yes_ask,
+                )
+            ]
         return []
 ```
 

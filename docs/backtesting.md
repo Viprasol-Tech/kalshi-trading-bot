@@ -13,13 +13,11 @@ snapshots = [
     for p in [40, 42, 45, 48, 55, 60, 58, 50, 45]
 ]
 
-report = Backtester(starting_balance_cents=100_000).run(
-    Momentum(window=5, size=1), snapshots
-)
+report = Backtester(starting_balance_cents=100_000).run(Momentum(window=5, size=1), snapshots)
 
 print("trades:", report.trades)
 print("PnL ($):", report.pnl_dollars)
-print(report.summary())   # sharpe, max_drawdown, win_rate, profit_factor, ...
+print(report.summary())  # sharpe, max_drawdown, win_rate, profit_factor, ...
 ```
 
 Prefer the CLI? Run any bundled strategy on offline synthetic data:
