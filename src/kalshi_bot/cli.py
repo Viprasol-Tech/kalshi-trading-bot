@@ -8,6 +8,8 @@ Part of the Kalshi Trading Bot by Viprasol Tech Private Limited.
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -20,6 +22,7 @@ from kalshi_bot.backtesting.report import render as render_report
 from kalshi_bot.config import load_settings
 from kalshi_bot.core.engine import TradingEngine
 from kalshi_bot.exchange.client import KalshiClient
+from kalshi_bot.paper import PaperBroker
 from kalshi_bot.risk.manager import RiskManager
 from kalshi_bot.strategies.base import Strategy
 from kalshi_bot.strategies.examples.arbitrage import ArbitrageYesNo
@@ -33,6 +36,60 @@ app = typer.Typer(
     help="Kalshi Trading Bot — open-source framework by Viprasol Tech.",
 )
 console = Console()
+
+
+@app.command("multi-status")
+def multi_status(
+    ledger: Path = typer.Option(Path("data/multi-paper.db"), dir_okay=False),
+) -> None:
+    """Read-only multi-category status; never initialize an absent account."""
+    from kalshi_bot.multi_dashboard import snapshot
+
+    console.print_json(data=snapshot(ledger))
+
+
+@app.command("multi-dashboard")
+def multi_dashboard(
+    ledger: Path = typer.Option(Path("data/multi-paper.db"), exists=True, dir_okay=False),
+    port: int = typer.Option(8766, min=1024, max=65535),
+) -> None:
+    """Loopback-only read-only UI; no deployment, public listener or start button."""
+    from kalshi_bot.multi_dashboard import serve
+
+    serve(ledger, port=port)
+
+
+@app.command("multi-kill")
+def multi_kill(
+    ledger: Path = typer.Option(Path("data/multi-paper.db"), exists=True, dir_okay=False),
+) -> None:
+    """Persist emergency shutdown, cancel unfilled paper orders, retain inventory."""
+    import time
+
+    from kalshi_bot.multi_market import PaperEngine
+
+    engine = PaperEngine(ledger)
+    try:
+        engine.shutdown(now=time.time(), reason="operator emergency shutdown")
+    finally:
+        engine.close()
+
+
+@app.command("multi-paper-run")
+def multi_paper_run(
+    ledger: Path = typer.Option(Path("data/multi-paper.db"), exists=True, dir_okay=False),
+    seconds: int = typer.Option(300, min=1, max=21600),
+) -> None:
+    """Future bounded demo-data paper loop; unavailable models/kill block before IO."""
+    from kalshi_bot.multi_feed import run as run_multi
+    from kalshi_bot.multi_market import PaperEngine
+
+    engine = PaperEngine(ledger)
+    try:
+        asyncio.run(run_multi(engine, seconds=seconds))
+    finally:
+        engine.close()
+
 
 STRATEGIES: dict[str, type[Strategy]] = {
     "market_maker": MarketMaker,
@@ -72,7 +129,7 @@ def strategies() -> None:
 def backtest(
     strategy: str = typer.Argument("momentum", help=f"One of: {', '.join(STRATEGIES)}"),
     ticks: int = typer.Option(200, help="Number of synthetic snapshots to replay."),
-    balance: int = typer.Option(100_000, help="Starting balance in cents."),
+    balance: int = typer.Option(5000, help="Paper balance in cents (maximum 5000)."),
     seed: int = typer.Option(42, help="RNG seed for the synthetic random walk."),
 ) -> None:
     """Backtest a strategy on synthetic data and print a metrics report.
@@ -113,20 +170,185 @@ def markets(
     asyncio.run(_run())
 
 
-@app.command()
-def balance() -> None:
-    """Show your portfolio balance (requires credentials)."""
+@app.command("paper-status")
+def paper_status() -> None:
+    """Show the persistent $50 paper ledger; never query an exchange account."""
+    broker = PaperBroker()
+    try:
+        for name, value in broker.account().items():
+            console.print(f"{name}: {value} cents")
+        console.print(f"pending_orders: {len(broker.pending())}")
+        console.print(f"fills: {len(broker.rows('fills'))}")
+        console.print(f"settlements: {len(broker.rows('settlements'))}")
+    finally:
+        broker.close()
+
+
+@app.command("btc-dashboard")
+def btc_dashboard(
+    ledger: Path = typer.Option(Path("data/paper.db"), dir_okay=False),
+    observations: Path | None = typer.Option(None, exists=True, dir_okay=False),
+    port: int = typer.Option(8765, min=1024, max=65535),
+    journal: Path | None = typer.Option(None, exists=True, dir_okay=False),
+    published_status: Path | None = typer.Option(None, dir_okay=False),
+) -> None:
+    """Serve a loopback-only read-only dashboard; never collect or submit orders."""
+    from kalshi_bot.btc_dashboard import serve
+
+    serve(ledger, observations, port=port, journal=journal, published_status=published_status)
+
+
+@app.command("btc-kill")
+def btc_kill(
+    reason: str = typer.Option(..., help="Reason for the persistent stop latch."),
+    journal: Path = typer.Option(Path("data/btc-auto-control.db")),
+) -> None:
+    """Arm the sticky stop latch. No reset, orders, collection or account mutation."""
+    import time
+
+    from kalshi_bot.btc_automation import ExecutionJournal
+
+    control = ExecutionJournal(journal)
+    try:
+        control.kill(reason, time.time())
+    finally:
+        control.close()
+    console.print("Kill switch armed. Entries remain disabled; no reset is available.")
+
+
+@app.command("btc-paper")
+def btc_paper(
+    ticks: int = typer.Option(1, min=1, max=1800, help="Bounded paper polling cycles."),
+    interval: float = typer.Option(2.0, min=1, max=5, help="Seconds between observations."),
+    calibration: Path | None = typer.Option(None, help="Observed out-of-time calibration JSON."),
+    record: Path | None = typer.Option(
+        None,
+        help="Append normalized observations to a .jsonl file.",
+    ),
+) -> None:
+    """Discover verified demo BTC 15-minute markets; never submit real orders."""
+    from kalshi_bot.safety import require_entry_release
+
+    require_entry_release()
+    from kalshi_bot.btc_data import CoinbaseReference, DemoBTCSource
+    from kalshi_bot.btc_model import CalibrationArtifact
+    from kalshi_bot.btc_replay import append_observation
+    from kalshi_bot.btc_strategy import BTCPaperRunner
+
+    artifact = None
+    if record is not None and record.suffix != ".jsonl":
+        raise typer.BadParameter("Observation recording requires a .jsonl data file.")
+    if calibration is not None:
+        if calibration.stat().st_size > 5_000_000:
+            raise typer.BadParameter("Calibration artifact exceeds 5 MB.")
+        artifact = CalibrationArtifact.model_validate_json(calibration.read_text())
+
+    async def _run() -> None:
+        settings = load_settings()
+        broker = PaperBroker(risk=RiskManager.from_settings(settings.risk))
+        reference = CoinbaseReference()
+        try:
+            async with KalshiClient.from_settings(settings) as client:
+                runner = BTCPaperRunner(
+                    broker,
+                    DemoBTCSource(client),
+                    reference,
+                    artifact,
+                    recorder=(lambda event: append_observation(record, event))
+                    if record is not None
+                    else None,
+                )
+                report = await runner.run(ticks=ticks, interval=interval)
+                console.print_json(data=report)
+        finally:
+            await reference.close()
+            broker.close()
+
+    asyncio.run(_run())
+
+
+@app.command("btc-validation-manifest")
+def btc_validation_manifest(
+    ledger: Path = typer.Option(Path("data/paper.db"), exists=True, dir_okay=False),
+) -> None:
+    """Print an offline, unreleased BTC-first review manifest; no writes or feed IO."""
+    from kalshi_bot.btc_validation_manifest import build_manifest
+
+    console.print_json(data=build_manifest(ledger))
+
+
+@app.command("btc-history-audit")
+def btc_history_audit(
+    limit: int = typer.Option(200, min=1, max=200),
+    output: Path = typer.Option(Path("data/btc-history-audit.json")),
+) -> None:
+    """Audit public demo labels/candles; never manufacture executable depth."""
+    from kalshi_bot.btc_data import DemoBTCSource
+    from kalshi_bot.btc_history import history_audit
 
     async def _run() -> None:
         settings = load_settings()
         async with KalshiClient.from_settings(settings) as client:
-            if not client.authenticated:
-                console.print("[red]No credentials configured. Set KALSHI_API_KEY_ID.[/]")
-                raise typer.Exit(code=1)
-            bal = await client.get_balance()
-            console.print(f"Balance: [bold green]${bal.balance / 100:,.2f}[/]")
+            report = await history_audit(DemoBTCSource(client), limit)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        summary = {
+            k: v
+            for k, v in report.items()
+            if k not in {"candlestick_probes", "raw_finalized_markets", "coinbase_candles"}
+        }
+        summary["output"] = str(output)
+        summary["candle_probe_count"] = len(report["candlestick_probes"])
+        console.print_json(data=summary)
 
     asyncio.run(_run())
+
+
+@app.command("btc-replay")
+def btc_replay(
+    observations: Path = typer.Argument(..., exists=True, dir_okay=False),
+    output: Path = typer.Option(Path("data/btc-replay-report.json")),
+) -> None:
+    """Replay recorded public observations offline; no calibration bypass."""
+    from kalshi_bot.btc_replay import replay
+
+    async def _run() -> None:
+        # No artifact creation/loading or promotion: observation-only evaluation.
+        blocked = False
+        try:
+            report, events = await replay(observations)
+        except (ValueError, OSError) as exc:
+            blocked = True
+            report = {
+                "status": "blocked_invalid_or_inadequate_archive",
+                "reason": str(exc),
+                "historical_win_rate": None,
+                "historical_pnl_cents": None,
+                "historical_maximum_drawdown": None,
+                "historical_calibration": None,
+                "promotion_allowed": False,
+                "persistent_bankroll_modified": False,
+            }
+            events = []
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        audit_path = output.with_name(output.stem + "-events.jsonl")
+        audit_path.write_text(
+            "".join(json.dumps(event) + "\n" for event in events),
+            encoding="utf-8",
+        )
+        console.print_json(data=report)
+        if blocked:
+            raise typer.Exit(code=2)
+
+    asyncio.run(_run())
+
+
+@app.command()
+def balance() -> None:
+    """Exchange balances are disabled; use paper-status for the simulated account."""
+    console.print("[red]Exchange account access is disabled. Use paper-status; do not add keys.[/]")
+    raise typer.Exit(code=1)
 
 
 @app.command()
@@ -134,18 +356,24 @@ def run(
     strategy: str = typer.Argument(..., help=f"One of: {', '.join(STRATEGIES)}"),
     ticker: str = typer.Argument(..., help="Market ticker to trade."),
     ticks: int = typer.Option(5, help="Number of poll cycles before stopping."),
-    live: bool = typer.Option(False, "--live", help="Send real orders (default is dry-run)."),
+    live: bool = typer.Option(False, "--live", help="Blocked on this simulation-only branch."),
 ) -> None:
-    """Run a strategy live or in dry-run mode."""
+    """Run a paper strategy using unsigned public demo market data."""
+    if live:
+        console.print("[red]Simulation-only: --live is disabled.[/]")
+        raise typer.Exit(code=1)
     if strategy not in STRATEGIES:
         choices = ", ".join(STRATEGIES)
         console.print(f"[red]Unknown strategy '{strategy}'. Choose from: {choices}[/]")
         raise typer.Exit(code=1)
 
     async def _run() -> None:
+        from kalshi_bot.safety import require_entry_release
+
+        require_entry_release()
         settings = load_settings()
-        # Dry-run unless --live is explicitly passed.
-        dry_run = not live
+        # Settings and both execution boundaries enforce simulation-only operation.
+        dry_run = settings.dry_run
         async with KalshiClient.from_settings(settings) as client:
             engine = TradingEngine(
                 client=client,

@@ -1,0 +1,30 @@
+[Unit]
+Description=Consistent encrypted off-site Kalshi SQLite backup
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/kalshi/hosting-approved
+ConditionPathExists=/etc/kalshi/offsite-backup-approved
+
+[Service]
+Type=oneshot
+Slice=kalshi.slice
+User=kalshi
+Group=kalshi
+WorkingDirectory=/opt/kalshi
+Environment=KALSHI_ENVIRONMENT=demo KALSHI_DRY_RUN=true
+Environment=KALSHI_DATA=/var/lib/kalshi KALSHI_BACKUPS=/var/backups/kalshi
+LoadCredential=restic-repository:/etc/kalshi/credentials/restic-repository
+LoadCredential=restic-password:/etc/kalshi/credentials/restic-password
+LoadCredential=aws-access-key:/etc/kalshi/credentials/aws-access-key
+LoadCredential=aws-secret-key:/etc/kalshi/credentials/aws-secret-key
+ExecStart=/opt/kalshi/.venv/bin/python /opt/kalshi/deploy/digitalocean/offsite_backup.py
+TimeoutStartSec=240
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# SQLite online backup uses query-only connections but may need transient WAL/SHM.
+ReadWritePaths=/var/backups/kalshi /var/lib/kalshi
+MemoryMax=400M
+CPUQuota=50%

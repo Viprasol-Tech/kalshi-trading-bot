@@ -16,10 +16,16 @@ class BuyCheapYes(Strategy):
     def on_market_data(self, ctx: StrategyContext) -> list[OrderRequest]:
         m = ctx.market
         if m.yes_ask is not None and m.yes_ask < 20 and ctx.position_for(m.ticker) == 0:
-            return [OrderRequest(
-                ticker=m.ticker, action=Action.BUY, side=Side.YES,
-                count=1, type=OrderType.LIMIT, yes_price=m.yes_ask,
-            )]
+            return [
+                OrderRequest(
+                    ticker=m.ticker,
+                    action=Action.BUY,
+                    side=Side.YES,
+                    count=1,
+                    type=OrderType.LIMIT,
+                    yes_price=m.yes_ask,
+                )
+            ]
         return []
 ```
 
@@ -61,5 +67,7 @@ your own, register it there, then:
 kalshi-bot strategies                                   # list registered strategies
 kalshi-bot backtest mean_reversion --ticks 200          # offline metrics
 kalshi-bot run buy_cheap_yes <TICKER> --ticks 10        # dry-run
-kalshi-bot run buy_cheap_yes <TICKER> --live            # real orders
 ```
+
+This branch rejects `--live`; only paper execution is available. See
+[simulation-only constraints](simulation-only.md) before supplying market data.

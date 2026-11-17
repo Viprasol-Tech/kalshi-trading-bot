@@ -1,25 +1,21 @@
 # Backtesting
 
-The `Backtester` replays a list of `Market` snapshots through a strategy,
-simulating immediate fills at each order's limit price, and reports metrics.
+The `Backtester` replays timestamped `Market` snapshots through the same
+conservative paper broker as the engine. See [simulation assumptions](simulation-only.md).
+Bare last-price snapshots without executable quote metadata cannot fill orders.
 
 ```python
 from kalshi_bot.backtesting.engine import Backtester
-from kalshi_bot.exchange.models import Market
+from kalshi_bot.backtesting.data import random_walk_snapshots
 from kalshi_bot.strategies.examples.momentum import Momentum
 
-snapshots = [
-    Market(ticker="TEST", last_price=p, yes_bid=p - 1, yes_ask=p + 1)
-    for p in [40, 42, 45, 48, 55, 60, 58, 50, 45]
-]
+snapshots = random_walk_snapshots(n=200, seed=42)
 
-report = Backtester(starting_balance_cents=100_000).run(
-    Momentum(window=5, size=1), snapshots
-)
+report = Backtester(starting_balance_cents=5000).run(Momentum(window=5, size=1), snapshots)
 
 print("trades:", report.trades)
 print("PnL ($):", report.pnl_dollars)
-print(report.summary())   # sharpe, max_drawdown, win_rate, profit_factor, ...
+print(report.summary())  # sharpe, max_drawdown, win_rate, profit_factor, ...
 ```
 
 Prefer the CLI? Run any bundled strategy on offline synthetic data:
@@ -48,15 +44,16 @@ and independently testable. `report.summary()` returns them as a flat dict.
 
 ## What it models
 
-- Fills at the order's limit price, immediately (no queue / slippage model).
-- Position and cost-basis (VWAP) tracked per snapshot; equity marked to last price.
-- Per-trade realised PnL on closing/reducing/flipping trades.
-- Optional flat per-contract fees and optional pre-trade `RiskManager` screening.
+- Later-quote execution with depth limits, partial fills, spread and adverse slippage.
+- Funded YES/NO holdings, FIFO costs, reservations and liquidation-value equity.
+- Realized PnL on closing trades, including entry and exit fees.
+- Two-cent estimated fees per filled contract and mandatory risk checks.
 
 ## What it does **not** model (yet)
 
-- Order-book depth, partial fills, or maker/taker queue priority.
-- Settlement timing and percentage-based exchange fees.
+- Maker queue priority: passive orders are conservatively left unfilled.
+- Historical BTC settlement replay and current exchange-specific fee schedules.
+- Calibrated annualization for 15-minute returns; legacy metrics use 252 periods.
 
 !!! note
     This backtester is a starting point for evaluating logic — not a

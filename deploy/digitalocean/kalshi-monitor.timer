@@ -1,0 +1,12 @@
+[Unit]
+Description=One-minute local infrastructure health checks
+ConditionPathExists=/etc/kalshi/hosting-approved
+ConditionPathExists=/etc/kalshi/offsite-backup-approved
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=1min
+Unit=kalshi-monitor.service
+
+[Install]
+WantedBy=timers.target

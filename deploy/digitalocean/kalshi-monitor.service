@@ -1,0 +1,24 @@
+[Unit]
+Description=Local Kalshi idle-guard and backup freshness check
+After=kalshi-guard.service
+ConditionPathExists=/etc/kalshi/hosting-approved
+ConditionPathExists=/etc/kalshi/offsite-backup-approved
+
+[Service]
+Type=oneshot
+Slice=kalshi.slice
+User=kalshi
+Group=kalshi-read
+WorkingDirectory=/opt/kalshi
+Environment=KALSHI_ENVIRONMENT=demo KALSHI_DRY_RUN=true
+ExecStart=/opt/kalshi/.venv/bin/python -m kalshi_bot.hosting monitor --data /var/lib/kalshi --backups /var/backups/kalshi
+TimeoutStartSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateNetwork=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/kalshi
+ReadOnlyPaths=/var/backups/kalshi
+MemoryMax=250M

@@ -4,6 +4,27 @@
 
 <h1 align="center">Kalshi Trading Bot</h1>
 
+> **Observation-only release lock (next phase).** All persistent paper submissions
+> and fills are now blocked at the broker, including direct library calls.
+> No environment variable, CLI flag or calibration artifact enables entries.
+> `btc-paper` and `run` fail before network access. Isolated in-memory synthetic
+> backtests remain available; they never touch the $50 account. A disabled
+> automatic opportunity planner, risk journal, fixed-cohort registry and local
+> read-only dashboard are implemented. They are **not an approved trading
+> release or a deployed collection service**. See
+> [the next-phase readiness report](docs/automatic-execution-readiness.md).
+>
+> **Simulation-only safety branch (Phases 1–3).** Live orders, production
+> configuration and exchange credentials are blocked, regardless of older
+> examples below. The paper account starts at $50 with a $1 maximum entry loss
+> including estimated fees. See [the simulation guide](docs/simulation-only.md)
+> for execution assumptions and limitations. The experimental BTC 15-minute
+> runner discovers demo markets but **blocks entries without matching observed
+> out-of-time calibration** (the newer hard entry lock also applies). No validated calibration artifact or historical
+> BTC performance claim is included. See [Phase 3](docs/phase-3-btc.md).
+> [Phase 4's data audit and replay tools](docs/phase-4-validation.md) are implemented;
+> empirical historical trading performance remains **blocked by insufficient data**.
+
 <p align="center">
   <strong>Open-source algorithmic trading framework for <a href="https://kalshi.com">Kalshi</a> prediction markets.</strong><br>
   Backtest, paper-trade, and deploy event-contract strategies in Python — with real metrics, real risk controls, and dry-run by default.
@@ -19,7 +40,7 @@
   <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue?style=flat-square&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/typed-mypy%20strict-2a6db2?style=flat-square&logo=python&logoColor=white" alt="mypy strict">
   <img src="https://img.shields.io/badge/code%20style-ruff-000000?style=flat-square&logo=ruff&logoColor=white" alt="Ruff">
-  <img src="https://img.shields.io/badge/tests-56%20passing-brightgreen?style=flat-square&logo=pytest&logoColor=white" alt="Tests">
+  <img src="https://img.shields.io/badge/offline_tests-261%20passing-brightgreen?style=flat-square&logo=pytest&logoColor=white" alt="Local offline tests">
   <img src="https://img.shields.io/badge/version-0.2.0-purple?style=flat-square" alt="Version">
   <a href="https://t.me/viprasol_help"><img src="https://img.shields.io/badge/Telegram-support-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram"></a>
   <a href="https://github.com/Viprasol-Tech/kalshi-trading-bot/stargazers"><img src="https://img.shields.io/github/stars/Viprasol-Tech/kalshi-trading-bot?style=flat-square&logo=github" alt="Stars"></a>
@@ -38,18 +59,19 @@
 
 ## ✨ Features
 
-- 🔐 **Kalshi-native auth** — correct RSA-PSS request signing (API key ID + RSA private key), the current Kalshi standard.
-- 🌐 **Async REST client** — market data, order book, balance, positions, order create/cancel.
-- 📡 **WebSocket streaming** — real-time `orderbook_delta`, `ticker`, `trade`, `fill` channels.
+- 🔐 **Credentials blocked** — unsigned public demo data only; no production keys.
+- 🌐 **Async REST client** — demo market, series and order book reads; mutations blocked.
+- 📡 **Authenticated WebSockets disabled** — the paper runner uses bounded public polling.
 - 🧠 **Five bundled strategies** — `market_maker`, `momentum`, `mean_reversion`, `arbitrage`, and Kelly-sized `fair_value`.
 - 🧩 **Pluggable strategy API** — subclass one `Strategy` base class and ship your own in minutes.
 - 🛡️ **Risk manager** — pre-trade limits + fractional-Kelly position sizing, configurable from the environment.
 - 📊 **Backtester with real metrics** — Sharpe, max drawdown, volatility, win rate, profit factor, fees, and per-trade PnL.
 - 🎲 **Offline synthetic data** — backtest and demo with zero network or credentials.
 - 🧱 **Typed models** — `Market`, `OrderBook`, `Fill`, `Position`, `Portfolio` (pydantic v2 throughout).
-- 🏜️ **Dry-run by default** — orders are simulated until you explicitly go `--live`.
+- 🏜️ **Simulation-only** — real orders and `--live` are disabled on this branch.
 - 🖥️ **Rich Typer CLI** — `markets`, `balance`, `run`, `backtest`, `strategies`, `version`.
-- 🌎 **Demo + production** environments with fully configurable base URLs.
+- ₿ **Experimental BTC 15-minute paper runner** — strict rule verification and calibrated net-edge gates.
+- 🌎 **Demo only** — production environments and non-demo exchange base URLs are rejected.
 - ⚙️ **Modern tooling** — `pyproject.toml`, ruff, mypy (strict), pytest, Docker, GitHub Actions, mkdocs.
 
 ## 🚀 Quickstart
@@ -59,7 +81,7 @@
 ```bash
 git clone https://github.com/Viprasol-Tech/kalshi-trading-bot.git
 cd kalshi-trading-bot
-cp .env.example .env          # then edit .env with your Kalshi API key ID
+cp .env.example .env          # leave credentials empty; demo/dry-run only
 docker compose run --rm bot markets --status open --limit 10
 ```
 
@@ -80,8 +102,9 @@ kalshi-bot strategies
 # Public market data needs no credentials either:
 kalshi-bot markets --status open --limit 10
 
-# Dry-run a live strategy (no real orders are sent):
-kalshi-bot run momentum INXD-23DEC29-B5000 --ticks 5
+# Read-only local dashboard after the existing paper ledger has been provisioned:
+kalshi-bot btc-dashboard --ledger data/paper.db
+# run and btc-paper are intentionally locked, including simulated entries.
 ```
 
 A backtest prints a metrics table like this:
@@ -101,22 +124,20 @@ A backtest prints a metrics table like this:
 +----------------------------------+
 ```
 
-## 🔑 Getting Kalshi credentials
+## 🔒 Simulation-only configuration
 
-1. Create a key in the Kalshi dashboard → **Profile → API Keys**. You receive an **API Key ID** and a one-time **RSA private key** download.
-2. Save the private key as `./secrets/kalshi_private_key.pem` (this path is git-ignored).
-3. Put your key ID in `.env`:
+Do not add exchange credentials or private keys on this branch.
 
 ```dotenv
-KALSHI_API_KEY_ID=your-key-id-uuid
-KALSHI_PRIVATE_KEY_PATH=./secrets/kalshi_private_key.pem
-KALSHI_ENVIRONMENT=demo                       # 'demo' (sandbox) or 'prod'
+KALSHI_API_KEY_ID=
+KALSHI_ENVIRONMENT=demo
 KALSHI_DRY_RUN=true
 KALSHI_RISK__MAX_CONTRACTS_PER_ORDER=100      # nested risk limits, override any
 KALSHI_RISK__KELLY_FRACTION=0.25
 ```
 
-> 🔒 **Never commit your private key or `.env`.** See [SECURITY.md](SECURITY.md).
+Use `kalshi-bot paper-status` for the simulated account. Production configuration,
+credentials and `--live` fail closed. See [the paper guide](docs/simulation-only.md).
 
 ## 🏗️ Architecture
 
@@ -170,10 +191,16 @@ class BuyCheapYes(Strategy):
     def on_market_data(self, ctx: StrategyContext) -> list[OrderRequest]:
         m = ctx.market
         if m.yes_ask is not None and m.yes_ask < 20 and ctx.position_for(m.ticker) == 0:
-            return [OrderRequest(
-                ticker=m.ticker, action=Action.BUY, side=Side.YES,
-                count=1, type=OrderType.LIMIT, yes_price=m.yes_ask,
-            )]
+            return [
+                OrderRequest(
+                    ticker=m.ticker,
+                    action=Action.BUY,
+                    side=Side.YES,
+                    count=1,
+                    type=OrderType.LIMIT,
+                    yes_price=m.yes_ask,
+                )
+            ]
         return []
 ```
 
@@ -186,9 +213,10 @@ from kalshi_bot.backtesting.data import random_walk_snapshots
 from kalshi_bot.backtesting.engine import Backtester
 from kalshi_bot.strategies.examples.mean_reversion import MeanReversion
 
-snapshots = random_walk_snapshots(n=250, seed=42)          # offline, deterministic
-report = Backtester(starting_balance_cents=100_000, fee_cents_per_contract=1).run(
-    MeanReversion(window=20, z=1.5), snapshots,
+snapshots = random_walk_snapshots(n=250, seed=42)  # offline, deterministic
+report = Backtester(starting_balance_cents=5000, fee_cents_per_contract=2).run(
+    MeanReversion(window=20, z=1.5),
+    snapshots,
 )
 
 print(report.summary())
@@ -206,7 +234,23 @@ mypy src
 pytest
 ```
 
-The project is **mypy-strict** and ships **56 tests** covering auth, models, risk, all five strategies, the backtester (fills, PnL, fees, risk gating), the metrics, the config, and the CLI.
+The project is **mypy-strict**. This disabled branch passed **261 local offline
+tests**, including execution locks, rollover discovery, prospective cohort
+scoring and read-only dashboard checks. This is not a hosted CI result or
+empirical BTC profitability evidence.
+
+For a separately approved future observation campaign, the read-only staging
+evaluator is available as:
+
+```bash
+python -m kalshi_bot.btc_campaign_validate data/campaign.db \
+  --output data/campaign-evaluation.json
+```
+
+It never creates a campaign, collects data or enables entries. Test scores stay
+sealed until the manifest's original deadline; selection scores stay sealed
+until its test boundary. Explicit offline cutoffs are not external wall-clock
+attestations. Registry-only provenance and executable net edges remain unverified.
 
 ## 🗺️ Roadmap
 
@@ -225,7 +269,9 @@ The project is **mypy-strict** and ships **56 tests** covering auth, models, ris
 ## ❓ FAQ
 
 **Does this place real trades out of the box?**
-No. Everything defaults to **dry-run** — orders are logged, not sent. You must pass `--live` and configure valid credentials to trade for real.
+No. This branch blocks **both real orders and persistent simulated entries**.
+`--live`, production settings and exchange credentials are rejected. Only isolated
+in-memory synthetic backtests execute; the $50 paper account is not traded.
 
 **Do I need a Kalshi account to try it?**
 No. `kalshi-bot backtest` and the examples run fully offline on synthetic data, and `kalshi-bot markets` reads public data without credentials.

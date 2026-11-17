@@ -36,7 +36,7 @@ def random_walk_snapshots(
     rng = random.Random(seed)
     price = max(1, min(99, start))
     out: list[Market] = []
-    for _ in range(max(0, n)):
+    for index in range(max(0, n)):
         price = max(2, min(98, price + rng.randint(-step, step)))
         bid = max(1, price - spread)
         ask = min(99, price + spread)
@@ -48,6 +48,12 @@ def random_walk_snapshots(
                 yes_ask=ask,
                 no_bid=100 - ask,
                 no_ask=100 - bid,
+                observed_at=1_000_000.0 + index * 2,
+                quote_id=f"synthetic-{ticker}-{index}",
+                yes_bid_size=20,
+                yes_ask_size=20,
+                no_bid_size=20,
+                no_ask_size=20,
             )
         )
     return out

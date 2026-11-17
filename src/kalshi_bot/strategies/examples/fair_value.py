@@ -35,7 +35,7 @@ class FairValue(Strategy):
 
     def on_market_data(self, ctx: StrategyContext) -> list[OrderRequest]:
         m = ctx.market
-        if m.yes_ask is None:
+        if m.yes_ask is None or ctx.balance < m.yes_ask + 2:
             return []
 
         fair_prob = float(self.params.get("fair_prob", 0.5))
@@ -54,9 +54,11 @@ class FairValue(Strategy):
         size = self._risk.kelly_size(
             edge_prob=fair_prob,
             price_cents=m.yes_ask,
-            bankroll_cents=max(ctx.balance, m.yes_ask),
+            bankroll_cents=ctx.balance,
         )
-        size = max(1, min(size, max_position - inventory))
+        size = min(size, max_position - inventory, ctx.balance // (m.yes_ask + 2))
+        if size <= 0:
+            return []
         return [
             OrderRequest(
                 ticker=m.ticker,

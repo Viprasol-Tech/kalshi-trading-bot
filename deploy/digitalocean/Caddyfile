@@ -1,0 +1,23 @@
+# Offline template. DO NOT expose until hosting + dashboard access are approved.
+# Tailscale Serve supplies private HTTPS and forwards ONLY to this loopback proxy.
+# No public Python, Caddy listener, Caddy admin API, domain or ACME purchase.
+{
+    admin off
+    persist_config off
+}
+http://:8787 {
+    bind 127.0.0.1
+    basic_auth {
+        {$DASHBOARD_USER} {$DASHBOARD_PASSWORD_HASH}
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        -Server
+    }
+    reverse_proxy 127.0.0.1:8765 {
+        header_up Host localhost:8765
+    }
+    # No access log: avoid credentials, private ticker queries or account data.
+}

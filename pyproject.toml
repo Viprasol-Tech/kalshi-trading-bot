@@ -34,7 +34,7 @@ classifiers = [
 ]
 dependencies = [
   "httpx>=0.27",
-  "websockets>=12.0",
+  "websockets==17.4",
   "cryptography>=42.0",
   "pydantic>=2.6",
   "pydantic-settings>=2.2",
@@ -43,6 +43,7 @@ dependencies = [
   "pandas>=2.2",
   "numpy>=1.26",
   "python-dotenv>=1.0",
+  "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

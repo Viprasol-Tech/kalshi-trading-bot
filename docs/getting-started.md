@@ -26,30 +26,13 @@ Dry-run a strategy (no real orders are sent):
 kalshi-bot run momentum INXD-23DEC29-B5000 --ticks 5
 ```
 
-## Add credentials
-
-1. In the Kalshi dashboard go to **Profile → API Keys** and create a key. You
-   receive an **API Key ID** and download an **RSA private key** once.
-2. Save the key to `./secrets/kalshi_private_key.pem` (git-ignored).
-3. Edit `.env`:
-
-```dotenv
-KALSHI_API_KEY_ID=your-key-id
-KALSHI_PRIVATE_KEY_PATH=./secrets/kalshi_private_key.pem
-KALSHI_ENVIRONMENT=demo
-KALSHI_DRY_RUN=true
-```
-
-Now authenticated commands work:
+## Paper account only
 
 ```bash
-kalshi-bot balance
+KALSHI_ENVIRONMENT=demo KALSHI_DRY_RUN=true KALSHI_API_KEY_ID= kalshi-bot paper-status
+kalshi-bot backtest momentum --ticks 200
 ```
 
-## Going live
-
-Live trading sends real orders. Only after thorough testing in `demo`:
-
-```bash
-kalshi-bot run momentum <TICKER> --live
-```
+Never configure exchange credentials on this branch. Production settings and
+`--live` are rejected. Public demo snapshots missing executable quote metadata
+cannot trigger paper entries. Read [simulation-only behavior](simulation-only.md).

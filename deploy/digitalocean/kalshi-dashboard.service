@@ -1,0 +1,45 @@
+[Unit]
+Description=Read-only loopback Kalshi dashboard
+After=local-fs.target kalshi-guard.service
+Wants=kalshi-guard.service
+ConditionPathExists=/etc/kalshi/hosting-approved
+ConditionPathExists=/var/lib/kalshi/paper.db
+ConditionPathExists=/var/lib/kalshi/btc-auto-control.db
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Slice=kalshi.slice
+# Dedicated identity cannot write account/control/observation files.
+User=kalshi-view
+Group=kalshi-view
+SupplementaryGroups=kalshi-read
+WorkingDirectory=/opt/kalshi
+Environment=KALSHI_ENVIRONMENT=demo KALSHI_DRY_RUN=true PYTHONUNBUFFERED=1
+ExecStart=/opt/kalshi/.venv/bin/kalshi-bot btc-dashboard --published-status /var/lib/kalshi/dashboard-published.json
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/var/lib/kalshi
+IPAddressDeny=any
+IPAddressAllow=127.0.0.0/8
+IPAddressAllow=::1/128
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=300M
+CPUQuota=40%
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

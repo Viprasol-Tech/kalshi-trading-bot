@@ -1,0 +1,31 @@
+{
+  "fixture_scope": "Selected public response fields from bounded 2026-11-12T19:30:08Z demo preflight; not a complete API response, valid contract or independent model dataset",
+  "query_parameters": {"series_ticker": "KXBTC15M", "status": "open", "limit": 20},
+  "catalog_markets": [
+    {
+      "ticker": "KXBTC15M-26NOV121430-30",
+      "event_ticker": "KXBTC15M-26NOV121430",
+      "status": "closed",
+      "floor_strike": 71558.17,
+      "open_time": "2026-11-12T19:15:00Z",
+      "close_time": "2026-11-12T19:30:00Z"
+    },
+    {
+      "ticker": "KXBTC15M-26MAY050000-00",
+      "event_ticker": "KXBTC15M-26MAY050000",
+      "status": "closed",
+      "floor_strike": null,
+      "open_time": "2026-05-04T06:13:51Z",
+      "close_time": "2026-05-05T04:00:00Z"
+    }
+  ],
+  "detail_states": ["determined", "closed"],
+  "expiration_fields": {
+    "latest_expiration_time": "2026-11-19T19:30:00Z",
+    "expected_expiration_time": "2026-11-12T19:35:00Z"
+  },
+  "books": [
+    {"orderbook_fp": {"yes_dollars": [], "no_dollars": []}},
+    {"orderbook_fp": {"yes_dollars": [], "no_dollars": [["0.5300", "4.00"]]}}
+  ]
+}

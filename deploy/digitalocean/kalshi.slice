@@ -1,0 +1,6 @@
+[Unit]
+Description=Kalshi observation infrastructure memory budget
+
+[Slice]
+MemoryMax=750M
+CPUQuota=90%

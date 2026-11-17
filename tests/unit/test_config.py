@@ -18,14 +18,13 @@ def test_defaults_are_demo_and_dry_run() -> None:
 
 
 def test_prod_urls() -> None:
-    s = Settings(_env_file=None, environment=Environment.PROD)
-    assert "api.elections.kalshi.com" in s.rest_base_url
-    assert s.ws_base_url.startswith("wss://")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, environment=Environment.PROD)
 
 
 def test_api_key_is_stripped() -> None:
-    s = Settings(_env_file=None, api_key_id="  abc-123  ")
-    assert s.api_key_id == "abc-123"
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, api_key_id="  forbidden-test-placeholder  ")
 
 
 def test_risk_settings_validation() -> None:
